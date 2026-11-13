@@ -1643,19 +1643,6 @@
     }
   }
 
-  function openSettingsModal() {
-    const cfg = FirebaseService.getStoredConfig();
-    if (cfg) {
-      document.getElementById("cfgApiKey").value = cfg.apiKey || "";
-      document.getElementById("cfgAuthDomain").value = cfg.authDomain || "";
-      document.getElementById("cfgProjectId").value = cfg.projectId || "";
-      document.getElementById("cfgStorageBucket").value = cfg.storageBucket || "";
-      document.getElementById("cfgMessagingSenderId").value = cfg.messagingSenderId || "";
-      document.getElementById("cfgAppId").value = cfg.appId || "";
-    }
-    openModal("modalSettings");
-  }
-
   function logout() {
     closeDropdown();
     FirebaseService.logout().then(() => {
@@ -1752,9 +1739,6 @@
 
     const menuTheme = document.getElementById("menuItemTheme");
     if (menuTheme) menuTheme.addEventListener("click", toggleTheme);
-
-    const menuSettings = document.getElementById("menuItemSettings");
-    if (menuSettings) menuSettings.addEventListener("click", openSettingsModal);
 
     const menuLogout = document.getElementById("menuItemLogout");
     if (menuLogout) menuLogout.addEventListener("click", logout);
@@ -1943,7 +1927,6 @@
     openAuthModal,
     toggleAccountMenu,
     openHistoryModal,
-    openSettingsModal,
     logout,
     startActiveRoute,
     toggleTheme,

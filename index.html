@@ -97,13 +97,6 @@
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemSettings" onclick="app.openSettingsModal()">
-          <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            <span>Configurações</span>
-          </div>
-        </button>
-
         <div id="menuAuthActionSection" class="hidden">
           <div class="dropdown-divider"></div>
           <button class="dropdown-item dropdown-item-danger" id="menuItemLogout" onclick="app.logout()">
@@ -714,31 +707,6 @@
     </div>
   </div>
 
-  <!-- Modal Configurações Firebase -->
-  <div id="modalSettings" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 style="font-weight:800; font-size:1.1rem;">Configurações do Firebase</h3>
-        <button class="icon-btn" onclick="app.closeModal('modalSettings')" aria-label="Fechar">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
-        </button>
-      </div>
-      <p class="meta-text">
-        Configurações do seu projeto Firebase (sincronização na nuvem):
-      </p>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <input type="text" id="cfgApiKey" class="input-field" placeholder="apiKey (ex: AIzaSy...)" />
-        <input type="text" id="cfgAuthDomain" class="input-field" placeholder="authDomain (ex: seu-app.firebaseapp.com)" />
-        <input type="text" id="cfgProjectId" class="input-field" placeholder="projectId (ex: seu-app-id)" />
-        <input type="text" id="cfgStorageBucket" class="input-field" placeholder="storageBucket" />
-        <input type="text" id="cfgMessagingSenderId" class="input-field" placeholder="messagingSenderId" />
-        <input type="text" id="cfgAppId" class="input-field" placeholder="appId" />
-
-        <button class="btn btn-primary" onclick="handleSaveFirebaseConfig()">Salvar e Inicializar Firebase</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Toast Notification Container -->
   <div id="toastNotice" class="toast-notice hidden"></div>
 
@@ -803,32 +771,16 @@
       });
     }
 
-    function handleSaveFirebaseConfig() {
-      const cfg = {
-        apiKey: document.getElementById('cfgApiKey').value.trim(),
-        authDomain: document.getElementById('cfgAuthDomain').value.trim(),
-        projectId: document.getElementById('cfgProjectId').value.trim(),
-        storageBucket: document.getElementById('cfgStorageBucket').value.trim(),
-        messagingSenderId: document.getElementById('cfgMessagingSenderId').value.trim(),
-        appId: document.getElementById('cfgAppId').value.trim()
-      };
-      FirebaseService.setStoredConfig(cfg);
-      app.closeModal('modalSettings');
-      app.showToast('Configurações do Firebase salvas!');
-    }
-
     // Exposição global garantida para cliques inline
     window.handleEmailLogin = handleEmailLogin;
     window.handleEmailRegister = handleEmailRegister;
     window.handleGoogleLogin = handleGoogleLogin;
     window.handleLogout = handleLogout;
-    window.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
     if (window.app) {
       window.app.handleEmailLogin = handleEmailLogin;
       window.app.handleEmailRegister = handleEmailRegister;
       window.app.handleGoogleLogin = handleGoogleLogin;
       window.app.handleLogout = handleLogout;
-      window.app.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
     }
   </script>
 </body>
