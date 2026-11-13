@@ -141,6 +141,7 @@ header.app-header {
 }
 
 .brand-title {
+  display: none;
   font-size: 0.95rem;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -1037,6 +1038,9 @@ main.app-main {
 
 /* Responsive tweaks */
 @media (min-width: 640px) {
+  .brand-title {
+    display: inline;
+  }
   .stat-grid {
     grid-template-columns: repeat(4, 1fr);
   }
