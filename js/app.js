@@ -23,18 +23,22 @@
     startTime: null,
     endTime: null,
     results: {},          // tn -> { status: 'delivered'|'failed', reason: '', time: '' }
+    photos: {},           // tn -> dataUrl (armazenadas localmente no IndexedDB)
+    loadedPackages: {},   // tn -> true (marcado como conferido/carregado no carro)
+    loadingFilter: "all", // 'all' | 'pending' | 'checked' | 'photo'
     userCoords: null,
     watchId: null,
     autoArrivedStopId: null,
     map: null,
     markers: {
-      active: null,
-      next: null,
-      user: null,
       routeLine: null,
-      allStops: []
+      routeBorderLine: null,
+      allStops: [],
+      animatedVehicle: null
     }
   };
+
+  let currentPhotoTn = null;
 
   // --- TOAST NOTIFICATIONS (No native browser alerts) ---
   function showToast(msg) {
@@ -59,6 +63,7 @@
     localStorage.setItem(THEME_KEY, state.theme);
     document.documentElement.setAttribute("data-theme", state.theme);
     updateThemeUI();
+    closeDropdown();
     showToast(state.theme === "dark" ? "Tema Escuro ativado" : "Tema Claro ativado");
   }
 
@@ -84,6 +89,7 @@
         startTime: state.startTime,
         endTime: state.endTime,
         results: state.results,
+        loadedPackages: state.loadedPackages,
         route: state.route
       };
       localStorage.setItem(getStorageKey(), JSON.stringify(serialized));
@@ -99,6 +105,28 @@
         const parsed = JSON.parse(saved);
         if (parsed.route && parsed.route.stops && parsed.route.stops.length > 0) {
           state.route = parsed.route;
+          if (!state.route.totalDistinctAddresses || !state.route.estimatedDurationStr) {
+            let totalDist = 0;
+            state.route.stops.forEach((s) => {
+              if (typeof s.distinctAddresses === "undefined") {
+                s.items.forEach((it) => {
+                  if (!it.apartmentInfo) {
+                    it.apartmentInfo = RouteOptimizer.extractApartmentInfo(it.complement, it.address);
+                  }
+                });
+                s.distinctAddresses = RouteOptimizer.countDistinctAddresses(s.items);
+                s.estimatedMinutes = s.distinctAddresses * 3;
+              }
+              totalDist += s.distinctAddresses || 1;
+            });
+            state.route.totalDistinctAddresses = totalDist;
+            state.route.serviceMinutes = totalDist * 3;
+            if (typeof state.route.transitMinutes === "undefined") {
+              state.route.transitMinutes = Math.max(0, (state.route.stops.length - 1) * 2);
+            }
+            state.route.estimatedMinutes = state.route.serviceMinutes + state.route.transitMinutes;
+            state.route.estimatedDurationStr = RouteOptimizer.formatDuration(state.route.estimatedMinutes);
+          }
           state.started = parsed.started || false;
           state.finished = parsed.finished || false;
           state.activeStopIdx = parsed.activeStopIdx || 0;
@@ -106,6 +134,18 @@
           state.startTime = parsed.startTime || null;
           state.endTime = parsed.endTime || null;
           state.results = parsed.results || {};
+          state.loadedPackages = parsed.loadedPackages || {};
+
+          // Carrega fotos salvas localmente no IndexedDB para a rota
+          if (typeof PhotoStorage !== "undefined") {
+            PhotoStorage.getAllPhotos().then((photos) => {
+              state.photos = photos || {};
+              renderLoadingOrderList();
+              if (state.activeTab === "current") {
+                renderCurrentStopView();
+              }
+            });
+          }
           return;
         }
       }
@@ -122,6 +162,8 @@
     state.startTime = null;
     state.endTime = null;
     state.results = {};
+    state.photos = {};
+    state.loadedPackages = {};
   }
 
   // --- ROUTE GENERATION & FILE PARSING (XLSX, XLS, CSV) ---
@@ -146,6 +188,11 @@
     state.startTime = null;
     state.endTime = null;
     state.results = {};
+    state.photos = {};
+    state.loadedPackages = {};
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
     saveState();
 
     switchScreen("home");
@@ -224,6 +271,13 @@
   }
 
   function switchTab(tabName) {
+    if (state.activeTab === "map" && tabName !== "map") {
+      stopRouteAnimation();
+    }
+    if (state.activeTab === "organize" && tabName !== "organize") {
+      stopScanner();
+    }
+
     state.activeTab = tabName;
     document.querySelectorAll(".tab-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.tab === tabName);
@@ -253,7 +307,10 @@
       tabMap.classList.remove("hidden");
       initLeafletMap();
       setTimeout(() => {
-        if (state.map) state.map.invalidateSize();
+        if (state.map) {
+          state.map.invalidateSize();
+          updateMapMarkers();
+        }
       }, 150);
     }
   }
@@ -298,8 +355,18 @@
     summaryBox.classList.remove("hidden");
 
     document.getElementById("statTotalStops").textContent = state.route.stops.length;
+    const statAddrs = document.getElementById("statTotalAddresses");
+    if (statAddrs) statAddrs.textContent = state.route.totalDistinctAddresses || state.route.stops.length;
     document.getElementById("statTotalPackages").textContent = state.route.totalPackages;
-    document.getElementById("statStreetsCount").textContent = state.route.streetsCount;
+    const statTime = document.getElementById("statEstimatedTime");
+    if (statTime) statTime.textContent = state.route.estimatedDurationStr || `${((state.route.totalDistinctAddresses || state.route.stops.length) * 3)} min`;
+    const statTimeSub = document.getElementById("statEstimatedTimeSub");
+    if (statTimeSub) {
+      const addrs = state.route.totalDistinctAddresses || state.route.stops.length;
+      const sMin = state.route.serviceMinutes || (addrs * 3);
+      const tMin = state.route.transitMinutes || 0;
+      statTimeSub.textContent = `⏱️ ${addrs} endereços (3 min/end = ${sMin}m) + trânsito (${tMin}m)`;
+    }
 
     const btnFullRoute = document.getElementById("btnOpenFullRouteDirect");
     if (btnFullRoute) {
@@ -308,15 +375,24 @@
 
     listContainer.innerHTML = state.route.stops
       .map(
-        (s) => `
+        (s) => {
+          const aptSub = (s.distinctAddresses && s.distinctAddresses > 1)
+            ? `<div class="meta-text" style="font-size:0.75rem; color:var(--info, #0284c7);">${s.distinctAddresses} apts/endereços • ~${s.distinctAddresses * 3} min</div>`
+            : `<div class="meta-text" style="font-size:0.75rem;">~${(s.distinctAddresses || 1) * 3} min</div>`;
+
+          return `
       <div class="stop-row-card" style="padding:8px 12px; margin-bottom:4px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span class="stop-idx-badge" style="width:26px; height:26px; font-size:0.75rem;">#${s.id}</span>
-          <span style="font-weight:700; font-size:0.85rem;">${s.title}</span>
+          <div>
+            <div style="font-weight:700; font-size:0.85rem;">${s.title}</div>
+            ${aptSub}
+          </div>
         </div>
         <span class="badge" style="font-size:0.75rem;">${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}</span>
       </div>
-    `
+    `;
+        }
       )
       .join("");
   }
@@ -336,7 +412,9 @@
     document.getElementById("currentStopCounter").innerHTML = `
       ${renderIcon("mapPin", 14)} PARADA ${stop.id} DE ${state.route.stops.length}
     `;
-    document.getElementById("currentStopPkgCount").textContent = `${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}`;
+    const stopAddresses = stop.distinctAddresses || 1;
+    const addrLabel = stopAddresses > 1 ? ` • ${stopAddresses} apts (~${stopAddresses * 3} min)` : ` (~${stopAddresses * 3} min)`;
+    document.getElementById("currentStopPkgCount").textContent = `${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}${addrLabel}`;
     document.getElementById("currentStopTitle").textContent = stop.title;
     document.getElementById("currentStopMeta").textContent = `${stop.bairro} • ${stop.city} - CEP ${stop.zipcode}`;
 
@@ -400,7 +478,9 @@
       const nxt = state.route.stops[state.activeStopIdx + 1];
       nextBox.classList.remove("hidden");
       document.getElementById("nextStopTitle").textContent = `#${nxt.id} ${nxt.title}`;
-      document.getElementById("nextStopDetails").textContent = `${nxt.items.length} ${nxt.items.length > 1 ? "pacotes" : "pacote"} • ${nxt.bairro}`;
+      const nxtAddresses = nxt.distinctAddresses || 1;
+      const nxtApt = nxtAddresses > 1 ? ` • ${nxtAddresses} apts (~${nxtAddresses * 3} min)` : ` (~${nxtAddresses * 3} min)`;
+      document.getElementById("nextStopDetails").textContent = `${nxt.items.length} ${nxt.items.length > 1 ? "pacotes" : "pacote"}${nxtApt} • ${nxt.bairro}`;
     } else {
       nextBox.classList.add("hidden");
     }
@@ -472,16 +552,6 @@
     });
   }
 
-  function sendWhatsAppMessage(tn) {
-    if (!state.route) return;
-    const stop = state.route.stops[state.activeStopIdx];
-    const addr = stop ? RouteOptimizer.formatStopLabel(stop) : "seu endereço";
-    const code = tn || "";
-    const msg = `Olá! Sou entregador da Shopee (SPX Express). Estou no endereço ${addr} para realizar a entrega do pacote ${code}. Por favor, me atenda no portão. Obrigado!`;
-    const encoded = encodeURIComponent(msg);
-    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
-  }
-
   const SPX_FAIL_REASONS = [
     "Cliente Ausente",
     "Endereço Incorreto",
@@ -503,20 +573,47 @@
         const badgeClass = isDelivered ? "badge-success" : (isFailed ? "badge-danger" : "badge-warning");
         const badgeLabel = isDelivered ? "Entregue" : (isFailed ? "Não Entregue" : "Pendente");
 
+        const aptTag = (it.apartmentInfo && it.apartmentInfo.hasApartment)
+          ? `<span class="badge" style="background:rgba(238,77,45,0.12); color:var(--primary); font-weight:800; font-size:0.75rem; border:1px solid rgba(238,77,45,0.3);">🏢 ${it.apartmentInfo.displayLabel}</span>`
+          : "";
+
+        const photoUrl = state.photos[it.tn] || null;
+        const photoBoxHtml = photoUrl
+          ? `
+            <div class="delivery-photo-preview-box">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <img src="${photoUrl}" alt="Foto da embalagem" class="delivery-photo-thumb" onclick="app.viewPhotoLarge(this.src, 'Parada #${stop.id} • Seq #${it.seq} • ${it.tn}')" />
+                <div>
+                  <div style="font-size:0.8rem; font-weight:800; color:var(--primary); display:flex; align-items:center; gap:4px;">
+                    ${renderIcon("camera", 14)} Foto da Embalagem
+                  </div>
+                  <div class="meta-text" style="font-size:0.72rem;">Toque para ampliar e identificar</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.capturePhotoForTn('${it.tn}')">Trocar</button>
+            </div>
+          `
+          : `
+            <div style="margin:4px 0 6px 0;">
+              <button type="button" class="btn btn-outline btn-xs" onclick="app.capturePhotoForTn('${it.tn}')" style="font-size:0.75rem; padding:4px 8px; gap:4px;">
+                ${renderIcon("camera", 14)} Fotografar Pacote
+              </button>
+            </div>
+          `;
+
         return `
         <div class="package-item">
           <div class="package-item-header">
-            <span class="tn-code">#${idx + 1} • ${it.tn}</span>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-outline btn-sm" style="width:auto; padding:3px 7px; font-size:0.72rem;" onclick="app.sendWhatsAppMessage('${it.tn}')" title="Avisar cliente no WhatsApp">
-                ${renderIcon("phone", 12)} WhatsApp
-              </button>
-              <span class="badge ${badgeClass}">
-                ${badgeLabel}
-              </span>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <span class="tn-code">#${idx + 1} • ${it.tn}</span>
+              ${aptTag}
             </div>
+            <span class="badge ${badgeClass}">
+              ${badgeLabel}
+            </span>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
+          ${photoBoxHtml}
           
           <!-- Seletor de 3 Estados: Entregue, Pendente e Não Entregue (Controle Opcional) -->
           <div class="status-toggles">
@@ -652,6 +749,13 @@
   function finishRoute() {
     state.finished = true;
     state.endTime = new Date().toLocaleString("pt-BR");
+
+    // Limpa as fotos temporárias da rota finalizada (libera espaço no dispositivo)
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
+    state.photos = {};
+
     saveState();
 
     const summary = getRouteSummary();
@@ -714,6 +818,7 @@
         const isActive = idx === state.activeStopIdx;
         const allDelivered = s.items.every((it) => state.results[it.tn] && state.results[it.tn].status === "delivered");
         const isDone = idx < state.activeStopIdx || allDelivered;
+        const aptSummary = s.distinctAddresses > 1 ? ` • ${s.distinctAddresses} apts (~${s.distinctAddresses * 3} min)` : ` (~${(s.distinctAddresses || 1) * 3} min)`;
 
         return `
         <div class="stop-row-card ${isActive ? "active-stop" : ""} ${isDone && !isActive ? "done-stop" : ""}" onclick="app.jumpToStop(${idx})">
@@ -723,7 +828,7 @@
             </div>
             <div>
               <div style="font-weight:700; font-size:0.9rem;">${s.title}</div>
-              <div class="meta-text">${s.bairro} • ${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}</div>
+              <div class="meta-text">${s.bairro} • ${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}${aptSummary}</div>
             </div>
           </div>
           <div style="text-align:right;">
@@ -744,12 +849,353 @@
     switchTab("current");
   }
 
-  // --- ORGANIZE / SCANNER TAB ---
-  function renderOrganizeView() {
-    const countEl = document.getElementById("organizeScannedCount");
-    if (countEl && state.route) {
-      countEl.textContent = `${PackageScanner.getScannedCount()} de ${state.route.totalPackages} conferidos`;
+  // --- ORGANIZE / SCANNER TAB & REVERSE LOADING ORDER ---
+  function getReverseLoadingItems() {
+    if (!state.route || !state.route.stops || state.route.stops.length === 0) return [];
+    const items = [];
+    // Ordem inversa de entrega: da última parada para a primeira
+    for (let sIdx = state.route.stops.length - 1; sIdx >= 0; sIdx--) {
+      const stop = state.route.stops[sIdx];
+      // Dentro da parada, ordem inversa dos itens
+      for (let pIdx = stop.items.length - 1; pIdx >= 0; pIdx--) {
+        const item = stop.items[pIdx];
+        items.push({
+          item,
+          stop,
+          stopIndex: sIdx,
+          packageIndex: pIdx,
+          loadIndex: items.length + 1 // 1º a carregar, 2º a carregar...
+        });
+      }
     }
+    return items;
+  }
+
+  function renderLoadingOrderList() {
+    const container = document.getElementById("loadingOrderListContainer");
+    if (!container) return;
+
+    if (!state.route || !state.route.stops || state.route.stops.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:20px; text-align:center;">
+          <div class="meta-text">Nenhuma rota carregada no momento.</div>
+        </div>
+      `;
+      return;
+    }
+
+    const allItems = getReverseLoadingItems();
+    const totalCount = allItems.length;
+
+    let countChecked = 0;
+    let countPhoto = 0;
+    allItems.forEach((entry) => {
+      const isChecked = !!(state.loadedPackages[entry.item.tn] || PackageScanner.isScanned(entry.item.tn));
+      const hasPhoto = !!state.photos[entry.item.tn];
+      if (isChecked) countChecked++;
+      if (hasPhoto) countPhoto++;
+    });
+    const countPending = totalCount - countChecked;
+
+    const elAll = document.getElementById("loadFilterCountAll");
+    const elPending = document.getElementById("loadFilterCountPending");
+    const elChecked = document.getElementById("loadFilterCountChecked");
+    const elPhoto = document.getElementById("loadFilterCountPhoto");
+    const progressBadge = document.getElementById("organizeLoadingProgressBadge");
+    const countEl = document.getElementById("organizeScannedCount");
+
+    if (elAll) elAll.textContent = totalCount;
+    if (elPending) elPending.textContent = countPending;
+    if (elChecked) elChecked.textContent = countChecked;
+    if (elPhoto) elPhoto.textContent = countPhoto;
+
+    const pct = totalCount > 0 ? Math.round((countChecked / totalCount) * 100) : 0;
+    if (progressBadge) progressBadge.textContent = `${countChecked}/${totalCount} no carro (${pct}%)`;
+    if (countEl) countEl.textContent = `${countChecked} de ${totalCount} no carro`;
+
+    // Active filter pill
+    document.querySelectorAll(".load-filter-pills .filter-pill").forEach((pill) => {
+      pill.classList.toggle("active", pill.dataset.loadFilter === state.loadingFilter);
+    });
+
+    const searchInput = document.getElementById("scannerSearchInput");
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
+    const filtered = allItems.filter((entry) => {
+      const isChecked = !!(state.loadedPackages[entry.item.tn] || PackageScanner.isScanned(entry.item.tn));
+      const hasPhoto = !!state.photos[entry.item.tn];
+
+      if (state.loadingFilter === "pending" && isChecked) return false;
+      if (state.loadingFilter === "checked" && !isChecked) return false;
+      if (state.loadingFilter === "photo" && !hasPhoto) return false;
+
+      if (query) {
+        const text = [
+          entry.item.tn,
+          entry.item.address,
+          entry.item.complement,
+          entry.stop.title,
+          entry.stop.bairro,
+          `parada ${entry.stop.id}`,
+          `#${entry.stop.id}`,
+          `pacote ${entry.item.seq}`,
+          entry.item.apartmentInfo && entry.item.apartmentInfo.displayLabel
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        if (!text.includes(query)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:20px; background:var(--surface-2); border-radius:var(--radius-md); border:1px dashed var(--border);">
+          <div class="meta-text">Nenhum pacote encontrado para o filtro selecionado.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = filtered.map((entry) => {
+      const { item, stop, loadIndex } = entry;
+      const isChecked = !!(state.loadedPackages[item.tn] || PackageScanner.isScanned(item.tn));
+      const photoUrl = state.photos[item.tn] || null;
+
+      const aptBadge = (item.apartmentInfo && item.apartmentInfo.hasApartment)
+        ? `<div class="load-apt-highlight">🏢 ${item.apartmentInfo.displayLabel}</div>`
+        : "";
+
+      const positionHint = loadIndex <= 3
+        ? "Fundo do carro"
+        : (loadIndex >= totalCount - 2 ? "Porta / Frente" : "Meio do carro");
+
+      return `
+        <div class="loading-item-card ${isChecked ? "is-checked" : ""}" id="loadCard-${item.tn}">
+          <div class="loading-item-top">
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <span class="load-order-pill" title="Posição no carregamento: ${positionHint}">
+                ${loadIndex}º carregar (${positionHint})
+              </span>
+              <span class="load-stop-badge">
+                PARADA #${stop.id}
+              </span>
+              <span class="load-seq-badge">
+                Seq #${item.seq}
+              </span>
+            </div>
+
+            <button type="button" class="btn-check-load ${isChecked ? "checked" : ""}" onclick="app.toggleItemChecked('${item.tn}')">
+              ${isChecked ? `${renderIcon("check", 14)} No Carro` : "Conferir"}
+            </button>
+          </div>
+
+          <div class="loading-item-body">
+            ${aptBadge}
+            <div class="load-address">
+              <strong>${stop.title}</strong>
+              <span class="meta-text">• ${stop.bairro}</span>
+            </div>
+
+            ${item.complement && item.complement !== "Sem complemento" ? `
+              <div class="load-complement"><strong>Compl:</strong> ${item.complement}</div>
+            ` : ""}
+
+            <div class="load-tn-row">
+              <span class="load-tn">Rastreio: <strong>${item.tn}</strong></span>
+              ${item.atId ? `<span class="load-atid">ID: ${item.atId}</span>` : ""}
+            </div>
+          </div>
+
+          <!-- Seção de Foto Aberta do Pacote -->
+          <div class="loading-item-photo-bar">
+            ${photoUrl ? `
+              <div class="load-photo-thumb-wrap" onclick="app.viewPhotoLarge('${photoUrl}', 'Parada #${stop.id} • Seq #${item.seq} • ${item.tn}')">
+                <img src="${photoUrl}" alt="Foto Pacote ${item.tn}" class="load-photo-thumb" />
+                <span class="load-photo-badge">${renderIcon("camera", 14)} Ver Foto</span>
+              </div>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.capturePhotoForTn('${item.tn}')">
+                Trocar Foto
+              </button>
+            ` : `
+              <button type="button" class="btn btn-outline btn-sm btn-load-photo" onclick="app.capturePhotoForTn('${item.tn}')">
+                ${renderIcon("camera", 15)} Tirar Foto Aberta
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function setLoadingFilter(filter) {
+    state.loadingFilter = filter;
+    renderLoadingOrderList();
+  }
+
+  function toggleItemChecked(tn) {
+    const isCurrentlyChecked = !!(state.loadedPackages[tn] || PackageScanner.isScanned(tn));
+    const nextState = !isCurrentlyChecked;
+    state.loadedPackages[tn] = nextState;
+    saveState();
+    renderOrganizeView();
+  }
+
+  function renderOrganizeView() {
+    renderLoadingOrderList();
+  }
+
+  // --- PHOTO CAPTURE & VIEWING ---
+  function updateScanModalPhotoUI(tn) {
+    const noPhotoBox = document.getElementById("modalScanNoPhotoBox");
+    const hasPhotoBox = document.getElementById("modalScanHasPhotoBox");
+    const photoImg = document.getElementById("modalScanPhotoImg");
+
+    if (!tn) {
+      if (noPhotoBox) noPhotoBox.classList.remove("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.add("hidden");
+      return;
+    }
+
+    const photoUrl = state.photos[tn] || null;
+    if (photoUrl) {
+      if (noPhotoBox) noPhotoBox.classList.add("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.remove("hidden");
+      if (photoImg) photoImg.src = photoUrl;
+    } else {
+      if (noPhotoBox) noPhotoBox.classList.remove("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.add("hidden");
+      if (photoImg) photoImg.src = "";
+    }
+  }
+
+  function triggerPackagePhotoCapture() {
+    if (!currentPhotoTn) return;
+    const input = document.getElementById("packagePhotoFileInput");
+    if (input) {
+      input.value = "";
+      input.click();
+    }
+  }
+
+  function capturePhotoForTn(tn) {
+    currentPhotoTn = tn;
+    triggerPackagePhotoCapture();
+  }
+
+  async function handlePhotoFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !currentPhotoTn) return;
+
+    try {
+      showToast("Comprimindo e salvando foto...");
+      const compressedDataUrl = await PhotoStorage.compressImageFile(file, 1080, 1080, 0.72);
+      await PhotoStorage.savePhoto(currentPhotoTn, compressedDataUrl);
+      state.photos[currentPhotoTn] = compressedDataUrl;
+
+      updateScanModalPhotoUI(currentPhotoTn);
+      renderLoadingOrderList();
+      if (state.activeTab === "current") {
+        renderCurrentStopView();
+      }
+      showToast("📸 Foto do pacote salva com sucesso!");
+    } catch (err) {
+      console.warn("Erro ao salvar foto:", err);
+      showToast("Erro ao processar a foto.");
+    }
+  }
+
+  async function deleteCurrentPackagePhoto() {
+    if (!currentPhotoTn) return;
+    try {
+      await PhotoStorage.deletePhoto(currentPhotoTn);
+      delete state.photos[currentPhotoTn];
+      updateScanModalPhotoUI(currentPhotoTn);
+      renderLoadingOrderList();
+      if (state.activeTab === "current") {
+        renderCurrentStopView();
+      }
+      showToast("Foto removida.");
+    } catch (err) {
+      console.warn("Erro ao remover foto:", err);
+    }
+  }
+
+  function viewPhotoLarge(src, metaText = "") {
+    if (!src) return;
+    const modal = document.getElementById("modalPhotoViewer");
+    const img = document.getElementById("photoViewerImg");
+    const meta = document.getElementById("photoViewerMeta");
+
+    if (img) img.src = src;
+    if (meta) meta.textContent = metaText || "";
+    if (modal) modal.classList.remove("hidden");
+  }
+
+  function showPackageModal(result) {
+    currentPhotoTn = result.item.tn;
+    // Marca automaticamente como conferido no veículo ao bipar
+    state.loadedPackages[result.item.tn] = true;
+    saveState();
+
+    const stopNumEl = document.getElementById("modalScanStopNumber");
+    const orderEl = document.getElementById("modalScanPackageOrder");
+    const aptEl = document.getElementById("modalScanApartment");
+    const addrEl = document.getElementById("modalScanAddress");
+    const compEl = document.getElementById("modalScanComplement");
+    const tnEl = document.getElementById("modalScanTnCode");
+
+    if (stopNumEl) stopNumEl.textContent = `PARADA #${result.stop.id}`;
+    if (orderEl) orderEl.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
+    if (aptEl) {
+      if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+        aptEl.textContent = `🏢 ${result.item.apartmentInfo.displayLabel}`;
+        aptEl.classList.remove("hidden");
+      } else {
+        aptEl.classList.add("hidden");
+      }
+    }
+    if (addrEl) addrEl.textContent = result.stop.title;
+    if (compEl) {
+      if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+        compEl.innerHTML = `<span style="display:inline-block; background:rgba(238,77,45,0.12); color:var(--primary); padding:2px 8px; border-radius:4px; font-weight:800; font-size:0.85rem; margin-bottom:4px;">🏢 ${result.item.apartmentInfo.displayLabel}</span><br>Complemento: ${result.item.complement || "Sem complemento"}`;
+      } else {
+        compEl.textContent = result.item.complement ? `Complemento: ${result.item.complement}` : "Sem complemento";
+      }
+    }
+    if (tnEl) tnEl.textContent = result.item.tn;
+
+    // Atualiza foto no modal (permite tirar foto se não tiver, ou ver se já tiver)
+    updateScanModalPhotoUI(currentPhotoTn);
+
+    // Atualiza também o cartão inferior para conferência rápida
+    const resultCard = document.getElementById("scanResultDisplay");
+    if (resultCard) {
+      resultCard.classList.remove("hidden");
+      const cardStop = document.getElementById("scanStopNumber");
+      const cardOrder = document.getElementById("scanPackageOrder");
+      const cardAddr = document.getElementById("scanAddress");
+      const cardComp = document.getElementById("scanComplement");
+      const cardTn = document.getElementById("scanTnCode");
+      if (cardStop) cardStop.textContent = `PARADA #${result.stop.id}`;
+      if (cardOrder) cardOrder.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
+      if (cardAddr) cardAddr.textContent = result.stop.title;
+      if (cardComp) {
+        if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+          cardComp.textContent = `🏢 ${result.item.apartmentInfo.displayLabel} • ${result.item.complement}`;
+        } else {
+          cardComp.textContent = result.item.complement || "";
+        }
+      }
+      if (cardTn) cardTn.textContent = result.item.tn;
+    }
+
+    renderOrganizeView();
+    openModal("modalScanPackage");
+  }
+
+  function closeScanModal() {
+    closeModal("modalScanPackage");
+    PackageScanner.resumeScanning();
   }
 
   function startScanner() {
@@ -757,123 +1203,297 @@
       showToast("Carregue uma rota primeiro.");
       return;
     }
-    document.getElementById("scannerStartBtn").classList.add("hidden");
-    document.getElementById("scannerStopBtn").classList.remove("hidden");
+    const startBtn = document.getElementById("scannerStartBtn");
+    const stopBtn = document.getElementById("scannerStopBtn");
+    if (startBtn) startBtn.classList.add("hidden");
+    if (stopBtn) stopBtn.classList.remove("hidden");
 
     PackageScanner.startCamera("qrReaderElement", state.route.stops, (result, found) => {
-      const resultCard = document.getElementById("scanResultDisplay");
-      resultCard.classList.remove("hidden");
-
       if (found) {
-        document.getElementById("scanStopNumber").textContent = `PARADA #${result.stop.id}`;
-        document.getElementById("scanPackageOrder").textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
-        document.getElementById("scanAddress").textContent = result.stop.title;
-        document.getElementById("scanComplement").textContent = result.item.complement;
-        document.getElementById("scanTnCode").textContent = result.item.tn;
-        renderOrganizeView();
+        showPackageModal(result);
       } else {
-        document.getElementById("scanStopNumber").textContent = "CÓDIGO NÃO LOCALIZADO";
-        document.getElementById("scanPackageOrder").textContent = result.rawCode || "Desconhecido";
-        document.getElementById("scanAddress").textContent = "Este pacote não pertence à rota atual.";
-        document.getElementById("scanComplement").textContent = "";
-        document.getElementById("scanTnCode").textContent = "";
+        const resultCard = document.getElementById("scanResultDisplay");
+        if (resultCard) {
+          resultCard.classList.remove("hidden");
+          document.getElementById("scanStopNumber").textContent = "CÓDIGO NÃO LOCALIZADO";
+          document.getElementById("scanPackageOrder").textContent = result.rawCode || "Desconhecido";
+          document.getElementById("scanAddress").textContent = "Este pacote não pertence à rota atual.";
+          document.getElementById("scanComplement").textContent = "";
+          document.getElementById("scanTnCode").textContent = "";
+        }
+        showToast("Código não encontrado nesta rota.");
       }
     });
   }
 
   function stopScanner() {
     PackageScanner.stopCamera();
-    document.getElementById("scannerStartBtn").classList.remove("hidden");
-    document.getElementById("scannerStopBtn").classList.add("hidden");
+    closeModal("modalScanPackage");
+    const startBtn = document.getElementById("scannerStartBtn");
+    const stopBtn = document.getElementById("scannerStopBtn");
+    if (startBtn) startBtn.classList.remove("hidden");
+    if (stopBtn) stopBtn.classList.add("hidden");
   }
 
   function handleManualSearch(query) {
     if (!state.route || !query.trim()) return;
     const match = PackageScanner.manualSearch(query, state.route.stops);
-    const resultCard = document.getElementById("scanResultDisplay");
-    resultCard.classList.remove("hidden");
-
     if (match) {
       PackageScanner.playBeep(true);
-      document.getElementById("scanStopNumber").textContent = `PARADA #${match.stop.id}`;
-      document.getElementById("scanPackageOrder").textContent = `Pacote #${match.item.seq} de ${state.route.totalPackages}`;
-      document.getElementById("scanAddress").textContent = match.stop.title;
-      document.getElementById("scanComplement").textContent = match.item.complement;
-      document.getElementById("scanTnCode").textContent = match.item.tn;
+      showPackageModal(match);
     } else {
       PackageScanner.playBeep(false);
-      document.getElementById("scanStopNumber").textContent = "NÃO ENCONTRADO";
-      document.getElementById("scanPackageOrder").textContent = query;
-      document.getElementById("scanAddress").textContent = "Verifique o código digitado.";
-      document.getElementById("scanComplement").textContent = "";
-      document.getElementById("scanTnCode").textContent = "";
+      const resultCard = document.getElementById("scanResultDisplay");
+      if (resultCard) {
+        resultCard.classList.remove("hidden");
+        document.getElementById("scanStopNumber").textContent = "NÃO ENCONTRADO";
+        document.getElementById("scanPackageOrder").textContent = query;
+        document.getElementById("scanAddress").textContent = "Verifique o código digitado.";
+        document.getElementById("scanComplement").textContent = "";
+        document.getElementById("scanTnCode").textContent = "";
+      }
+      showToast("Pacote não encontrado nesta rota.");
     }
   }
 
-  // --- LEAFLET MAP ---
+  // --- LEAFLET MAP COM TODAS AS PARADAS E ANIMAÇÃO DE PERCURSO ---
+  let mapAnim = {
+    frameId: null,
+    totalDistance: 0,
+    segments: [],
+    startTime: null,
+    durationMs: 14000
+  };
+
   function initLeafletMap() {
     if (!state.route || state.route.stops.length === 0) return;
     if (state.map) {
       updateMapMarkers();
+      startRouteAnimation();
       return;
     }
 
     const first = state.route.stops[0];
-    state.map = L.map("map").setView([first.lat, first.lon], 16);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(state.map);
+    state.map = L.map("map", {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([first.lat, first.lon], 15);
 
-    const latlngs = state.route.stops.map((s) => [s.lat, s.lon]);
-    state.markers.routeLine = L.polyline(latlngs, {
-      color: "#ee4d2d",
-      weight: 3.5,
-      opacity: 0.7,
-      dashArray: "6, 6"
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19
     }).addTo(state.map);
 
     updateMapMarkers();
+    startRouteAnimation();
   }
 
   function updateMapMarkers() {
-    if (!state.map || !state.route) return;
-    const stop = state.route.stops[state.activeStopIdx];
+    if (!state.map || !state.route || state.route.stops.length === 0) return;
 
-    if (state.markers.active) state.map.removeLayer(state.markers.active);
-    if (state.markers.next) state.map.removeLayer(state.markers.next);
+    const stops = state.route.stops;
+    const latlngs = stops.map((s) => [s.lat, s.lon]);
 
-    state.markers.active = L.circleMarker([stop.lat, stop.lon], {
-      radius: 11,
-      color: "#ffffff",
-      weight: 2.5,
-      fillColor: "#10b981",
-      fillOpacity: 1
-    })
-      .addTo(state.map)
-      .bindPopup(`<strong>#${stop.id} (Atual)</strong><br>${stop.title}`)
-      .openPopup();
+    // Linha de Traçado da Rota (Borda escura de contraste + linha principal laranja destacada)
+    if (state.markers.routeBorderLine) state.map.removeLayer(state.markers.routeBorderLine);
+    if (state.markers.routeLine) state.map.removeLayer(state.markers.routeLine);
 
-    if (state.activeStopIdx + 1 < state.route.stops.length) {
-      const nxt = state.route.stops[state.activeStopIdx + 1];
-      state.markers.next = L.circleMarker([nxt.lat, nxt.lon], {
-        radius: 8,
-        color: "#ffffff",
-        weight: 1.5,
-        fillColor: "#f59e0b",
-        fillOpacity: 0.9
+    state.markers.routeBorderLine = L.polyline(latlngs, {
+      color: "#0f172a",
+      weight: 6,
+      opacity: 0.65,
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(state.map);
+
+    state.markers.routeLine = L.polyline(latlngs, {
+      color: "#ee4d2d",
+      weight: 4,
+      opacity: 0.9,
+      dashArray: "8, 6",
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(state.map);
+
+    // Remove marcadores anteriores
+    if (state.markers.allStops && state.markers.allStops.length > 0) {
+      state.markers.allStops.forEach((m) => state.map.removeLayer(m));
+    }
+    state.markers.allStops = [];
+
+    let currentMarker = null;
+
+    // Plota TODAS as paradas da rota no mapa
+    stops.forEach((stop, idx) => {
+      const isCurrent = idx === state.activeStopIdx;
+      const isDelivered = stop.items.every(
+        (it) => state.results[it.tn] && state.results[it.tn].status === "delivered"
+      );
+      const isFailed = stop.items.every(
+        (it) => state.results[it.tn] && state.results[it.tn].status === "failed"
+      );
+
+      let pinClass = "route-pin-pending";
+      let statusBadge = `PARADA #${stop.id}`;
+      let badgeStyle = "color:#64748b;";
+
+      if (isCurrent) {
+        pinClass = "route-pin-current";
+        statusBadge = "📍 PARADA ATUAL";
+        badgeStyle = "color:#ee4d2d;";
+      } else if (isDelivered) {
+        pinClass = "route-pin-delivered";
+        statusBadge = "✓ ENTREGUE";
+        badgeStyle = "color:#10b981;";
+      } else if (isFailed) {
+        pinClass = "route-pin-failed";
+        statusBadge = "✕ NÃO ENTREGUE";
+        badgeStyle = "color:#ef4444;";
+      }
+
+      const iconHtml = isCurrent
+        ? `<div class="map-stop-pin ${pinClass}"><div class="map-pin-pulse"></div><span class="map-pin-num">${stop.id}</span></div>`
+        : `<div class="map-stop-pin ${pinClass}"><span class="map-pin-num">${stop.id}</span></div>`;
+
+      const customIcon = L.divIcon({
+        className: "custom-stop-marker-wrap",
+        html: iconHtml,
+        iconSize: isCurrent ? [34, 34] : [28, 28],
+        iconAnchor: isCurrent ? [17, 17] : [14, 14],
+        popupAnchor: [0, isCurrent ? -18 : -14]
+      });
+
+      const popupHtml = `
+        <div class="map-stop-popup">
+          <div class="map-stop-badge" style="${badgeStyle}">${statusBadge}</div>
+          <div class="map-stop-title">${stop.title}</div>
+          <div class="map-stop-desc">${stop.items.length} pacote(s) • Seq: ${stop.items.map((it) => "#" + it.seq).join(", ")}</div>
+          ${!isCurrent ? `<button type="button" class="btn btn-primary btn-sm" style="margin-top:8px; width:100%; font-size:0.75rem; padding:4px;" onclick="app.jumpToStop(${idx})">Ir para esta Parada</button>` : ""}
+        </div>
+      `;
+
+      const marker = L.marker([stop.lat, stop.lon], {
+        icon: customIcon,
+        zIndexOffset: isCurrent ? 1000 : 100
       })
         .addTo(state.map)
-        .bindPopup(`<strong>#${nxt.id} (Próxima)</strong><br>${nxt.title}`);
+        .bindPopup(popupHtml);
+
+      state.markers.allStops.push(marker);
+
+      if (isCurrent) {
+        currentMarker = marker;
+      }
+    });
+
+    // Centraliza e destaca a parada atual
+    const currentStop = stops[state.activeStopIdx];
+    if (currentStop) {
+      state.map.setView([currentStop.lat, currentStop.lon], 16);
+      if (currentMarker) {
+        currentMarker.openPopup();
+      }
     }
 
-    state.map.setView([stop.lat, stop.lon], 16);
+    // Prepara segmentos para animação de percurso
+    prepareRouteSegments(latlngs);
+  }
+
+  function prepareRouteSegments(latlngs) {
+    mapAnim.segments = [];
+    mapAnim.totalDistance = 0;
+    if (latlngs.length < 2) return;
+
+    for (let i = 0; i < latlngs.length - 1; i++) {
+      const p1 = latlngs[i];
+      const p2 = latlngs[i + 1];
+      const dist = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+      mapAnim.segments.push({
+        p1,
+        p2,
+        dist,
+        startDist: mapAnim.totalDistance
+      });
+      mapAnim.totalDistance += dist;
+    }
+  }
+
+  function startRouteAnimation() {
+    stopRouteAnimation();
+    if (!state.map || !state.route || state.route.stops.length < 2 || mapAnim.totalDistance <= 0) return;
+
+    const latlngs = state.route.stops.map((s) => [s.lat, s.lon]);
+
+    if (state.markers.animatedVehicle) {
+      state.map.removeLayer(state.markers.animatedVehicle);
+    }
+
+    const vehicleIcon = L.divIcon({
+      className: "map-vehicle-icon-wrap",
+      html: `
+        <div class="map-vehicle-dot">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#ffffff">
+            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10l-1.5-3H9c-1.1 0-2 .9-2 2v2H3c-.6 0-1 .4-1 1v5c0 .6.4 1 1 1h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3zM7 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm11 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/>
+          </svg>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    state.markers.animatedVehicle = L.marker([latlngs[0][0], latlngs[0][1]], {
+      icon: vehicleIcon,
+      zIndexOffset: 1200
+    }).addTo(state.map);
+
+    mapAnim.startTime = performance.now();
+
+    function step(now) {
+      if (!state.map || !state.markers.animatedVehicle) return;
+
+      const elapsed = (now - mapAnim.startTime) % mapAnim.durationMs;
+      const progress = elapsed / mapAnim.durationMs;
+      const targetDist = progress * mapAnim.totalDistance;
+
+      let curLat = latlngs[0][0];
+      let curLon = latlngs[0][1];
+
+      for (let i = 0; i < mapAnim.segments.length; i++) {
+        const seg = mapAnim.segments[i];
+        if (targetDist >= seg.startDist && targetDist <= seg.startDist + seg.dist) {
+          const frac = seg.dist > 0 ? (targetDist - seg.startDist) / seg.dist : 0;
+          curLat = seg.p1[0] + frac * (seg.p2[0] - seg.p1[0]);
+          curLon = seg.p1[1] + frac * (seg.p2[1] - seg.p1[1]);
+          break;
+        }
+      }
+
+      state.markers.animatedVehicle.setLatLng([curLat, curLon]);
+      mapAnim.frameId = requestAnimationFrame(step);
+    }
+
+    mapAnim.frameId = requestAnimationFrame(step);
+  }
+
+  function stopRouteAnimation() {
+    if (mapAnim.frameId) {
+      cancelAnimationFrame(mapAnim.frameId);
+      mapAnim.frameId = null;
+    }
   }
 
   function centerMapOnCurrent() {
     if (!state.map || !state.route) return;
     const stop = state.route.stops[state.activeStopIdx];
-    state.map.setView([stop.lat, stop.lon], 17);
+    if (stop) {
+      state.map.setView([stop.lat, stop.lon], 17);
+      const marker = state.markers.allStops[state.activeStopIdx];
+      if (marker) marker.openPopup();
+    }
+  }
+
+  function fitAllStopsMap() {
+    if (!state.map || !state.markers.routeLine) return;
+    state.map.fitBounds(state.markers.routeLine.getBounds(), { padding: [32, 32] });
   }
 
   // --- GPS & GEOFENCING ---
@@ -1013,27 +1633,39 @@
     showToast("Relatório CSV baixado!");
   }
 
-  function copyWhatsAppReport() {
+  function copyRouteSummary() {
     const summary = getRouteSummary();
     const fails = summary.details
       .filter((d) => d.status === "failed")
       .map((d) => `• ${d.tn} (${d.address}): ${d.reason || "Não visitado"}`);
 
+    const estTime = state.route && state.route.estimatedDurationStr
+      ? `⏱️ Tempo Estimado: ${state.route.estimatedDurationStr} (${state.route.totalDistinctAddresses || state.route.stops.length} endereços a 3 min/end)`
+      : "";
+
     const text = [
-      `📦 *RELATÓRIO DE ENTREGAS SPX EXPRESS*`,
+      `📦 *ORGANIZA ENTREGAS — RELATÓRIO DO DIA*`,
       `📅 Data: ${new Date().toLocaleDateString("pt-BR")}`,
+      estTime,
       `✅ Pacotes Entregues: ${summary.deliveredCount} / ${summary.totalPackages} (${summary.successRate}%)`,
       `❌ Não Entregues: ${summary.failedCount}`,
       fails.length > 0 ? `\n*Pendências:*\n${fails.join("\n")}` : `\n🎉 100% de sucesso!`
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
-      showToast("Resumo para WhatsApp copiado!");
+      showToast("Resumo da rota copiado!");
+    }).catch(() => {
+      showToast("Não foi possível copiar.");
     });
   }
 
   function resetRoute() {
     localStorage.removeItem(getStorageKey());
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
+    state.photos = {};
+    state.loadedPackages = {};
     state.started = false;
     state.finished = false;
     state.activeStopIdx = 0;
@@ -1338,27 +1970,22 @@
   }
 
   function toggleAccountMenu(e) {
-    if (e && e.stopPropagation) e.stopPropagation();
+    if (e) {
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+    }
     const dropdownMenu = document.getElementById("accountDropdownMenu");
     const btnAccountMenu = document.getElementById("btnAccountMenu");
     if (!dropdownMenu) return;
-    dropdownMenu.classList.toggle("hidden");
-    if (btnAccountMenu) {
-      btnAccountMenu.classList.toggle("active", !dropdownMenu.classList.contains("hidden"));
-    }
-  }
 
-  function openSettingsModal() {
-    const cfg = FirebaseService.getStoredConfig();
-    if (cfg) {
-      document.getElementById("cfgApiKey").value = cfg.apiKey || "";
-      document.getElementById("cfgAuthDomain").value = cfg.authDomain || "";
-      document.getElementById("cfgProjectId").value = cfg.projectId || "";
-      document.getElementById("cfgStorageBucket").value = cfg.storageBucket || "";
-      document.getElementById("cfgMessagingSenderId").value = cfg.messagingSenderId || "";
-      document.getElementById("cfgAppId").value = cfg.appId || "";
+    const isHidden = dropdownMenu.classList.contains("hidden");
+    if (isHidden) {
+      dropdownMenu.classList.remove("hidden");
+      if (btnAccountMenu) btnAccountMenu.classList.add("active");
+    } else {
+      dropdownMenu.classList.add("hidden");
+      if (btnAccountMenu) btnAccountMenu.classList.remove("active");
     }
-    openModal("modalSettings");
   }
 
   function logout() {
@@ -1385,23 +2012,23 @@
 
     // Firebase Auth sync & User Data Isolation
     FirebaseService.onAuthChange((user) => {
-      const btnLogin = document.getElementById("btnHeaderLogin");
+      const menuLogin = document.getElementById("menuItemLogin");
       const avatarText = document.getElementById("userAvatarText");
       const menuName = document.getElementById("menuUserName");
       const menuEmail = document.getElementById("menuUserEmail");
       const authSection = document.getElementById("menuAuthActionSection");
 
       if (user && !user.isLocal) {
-        // User is logged in: HIDE login button, show avatar initial & profile info
-        if (btnLogin) btnLogin.classList.add("hidden");
+        // User is logged in: HIDE login item in menu, show avatar initial & profile info
+        if (menuLogin) menuLogin.classList.add("hidden");
         const initial = (user.displayName || user.email || "U").charAt(0).toUpperCase();
         if (avatarText) avatarText.textContent = initial;
         if (menuName) menuName.textContent = user.displayName || user.email.split("@")[0];
         if (menuEmail) menuEmail.textContent = user.email;
         if (authSection) authSection.classList.remove("hidden");
       } else {
-        // User is guest: SHOW login button, show default guest menu
-        if (btnLogin) btnLogin.classList.remove("hidden");
+        // User is guest: SHOW login item in menu, show default guest menu
+        if (menuLogin) menuLogin.classList.remove("hidden");
         if (avatarText) avatarText.textContent = "?";
         if (menuName) menuName.textContent = "Visitante";
         if (menuEmail) menuEmail.textContent = "Não conectado";
@@ -1426,28 +2053,45 @@
     const btnAccountMenu = document.getElementById("btnAccountMenu");
     const dropdownMenu = document.getElementById("accountDropdownMenu");
 
-    if (btnAccountMenu && dropdownMenu) {
-      btnAccountMenu.addEventListener("click", toggleAccountMenu);
+    if (btnAccountMenu) {
+      btnAccountMenu.addEventListener("click", (e) => {
+        toggleAccountMenu(e);
+      });
+    }
+
+    if (dropdownMenu) {
+      dropdownMenu.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
     }
 
     document.addEventListener("click", (e) => {
-      if (dropdownMenu && !dropdownMenu.contains(e.target) && btnAccountMenu && !btnAccountMenu.contains(e.target)) {
-        closeDropdown();
+      if (dropdownMenu && !dropdownMenu.classList.contains("hidden")) {
+        if (!dropdownMenu.contains(e.target) && btnAccountMenu && !btnAccountMenu.contains(e.target)) {
+          closeDropdown();
+        }
       }
     });
 
+    updateInstallUiState();
+
     // Menu Actions
-    const btnLogin = document.getElementById("btnHeaderLogin");
-    if (btnLogin) btnLogin.addEventListener("click", openAuthModal);
+    const menuLogin = document.getElementById("menuItemLogin");
+    if (menuLogin) {
+      menuLogin.addEventListener("click", () => {
+        closeDropdown();
+        openAuthModal();
+      });
+    }
+
+    const menuInstall = document.getElementById("menuItemInstallApp");
+    if (menuInstall) menuInstall.addEventListener("click", installPwa);
 
     const menuHist = document.getElementById("menuItemHistory");
     if (menuHist) menuHist.addEventListener("click", openHistoryModal);
 
     const menuTheme = document.getElementById("menuItemTheme");
     if (menuTheme) menuTheme.addEventListener("click", toggleTheme);
-
-    const menuSettings = document.getElementById("menuItemSettings");
-    if (menuSettings) menuSettings.addEventListener("click", openSettingsModal);
 
     const menuLogout = document.getElementById("menuItemLogout");
     if (menuLogout) menuLogout.addEventListener("click", logout);
@@ -1524,15 +2168,24 @@
 
     const scanInput = document.getElementById("scannerSearchInput");
     if (scanInput) {
-      scanInput.addEventListener("input", (e) => handleManualSearch(e.target.value));
+      scanInput.addEventListener("input", (e) => {
+        handleManualSearch(e.target.value);
+        renderLoadingOrderList();
+      });
+    }
+
+    // Input de captura de foto do pacote
+    const photoFileInput = document.getElementById("packagePhotoFileInput");
+    if (photoFileInput) {
+      photoFileInput.addEventListener("change", handlePhotoFileSelected);
     }
 
     // Report
     const btnExport = document.getElementById("btnExportCSV");
     if (btnExport) btnExport.addEventListener("click", exportCSV);
 
-    const btnCopyWA = document.getElementById("btnCopyWhatsApp");
-    if (btnCopyWA) btnCopyWA.addEventListener("click", copyWhatsAppReport);
+    const btnCopySum = document.getElementById("btnCopySummary");
+    if (btnCopySum) btnCopySum.addEventListener("click", copyRouteSummary);
 
     const btnReset = document.getElementById("btnResetRoute");
     if (btnReset) btnReset.addEventListener("click", resetRoute);
@@ -1540,8 +2193,88 @@
     const btnCenter = document.getElementById("btnCenterMap");
     if (btnCenter) btnCenter.addEventListener("click", centerMapOnCurrent);
 
+    const btnFitAll = document.getElementById("btnFitAllMap");
+    if (btnFitAll) btnFitAll.addEventListener("click", fitAllStopsMap);
+
     const btnMultiModal = document.getElementById("btnOpenMultiBatchModal");
     if (btnMultiModal) btnMultiModal.addEventListener("click", openMultiBatchModal);
+  }
+
+  // --- PWA INSTALLATION PROMPT & SMART MOBILE GUIDE ---
+  let deferredInstallPrompt = null;
+
+  function isIos() {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function isStandalone() {
+    return window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true;
+  }
+
+  function updateInstallUiState() {
+    const isApp = isStandalone();
+    const btn = document.getElementById("btnInstallPwa");
+    const banner = document.getElementById("pwaHomeInstallBanner");
+    const menuInstall = document.getElementById("menuItemInstallApp");
+
+    if (isApp) {
+      if (btn) btn.classList.add("hidden");
+      if (banner) banner.classList.add("hidden");
+      if (menuInstall) menuInstall.classList.add("hidden");
+    } else {
+      if (btn) btn.classList.remove("hidden");
+      if (banner) banner.classList.remove("hidden");
+      if (menuInstall) menuInstall.classList.remove("hidden");
+    }
+  }
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    updateInstallUiState();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    showToast("Organiza Entregas instalado com sucesso!");
+    deferredInstallPrompt = null;
+    updateInstallUiState();
+  });
+
+  function installPwa() {
+    closeDropdown();
+
+    if (isStandalone()) {
+      showToast("O aplicativo já está instalado no seu celular!");
+      return;
+    }
+
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then((choice) => {
+        if (choice.outcome === "accepted") {
+          showToast("Instalação iniciada!");
+        }
+        deferredInstallPrompt = null;
+        updateInstallUiState();
+      });
+      return;
+    }
+
+    // Se estiver no iOS / Safari ou o prompt automático não estiver ativo, exibe o modal com passos visuais
+    const guideIos = document.getElementById("installGuideIos");
+    const guideAndroid = document.getElementById("installGuideAndroid");
+
+    if (isIos()) {
+      if (guideIos) guideIos.classList.remove("hidden");
+      if (guideAndroid) guideAndroid.classList.add("hidden");
+    } else {
+      if (guideIos) guideIos.classList.add("hidden");
+      if (guideAndroid) guideAndroid.classList.remove("hidden");
+    }
+
+    openModal("modalInstallApp");
   }
 
   // Expose global app methods
@@ -1551,10 +2284,17 @@
     jumpToStop,
     openModal,
     closeModal,
+    closeScanModal,
+    showPackageModal,
+    setLoadingFilter,
+    toggleItemChecked,
+    triggerPackagePhotoCapture,
+    capturePhotoForTn,
+    deleteCurrentPackagePhoto,
+    viewPhotoLarge,
     openAuthModal,
     toggleAccountMenu,
     openHistoryModal,
-    openSettingsModal,
     logout,
     startActiveRoute,
     toggleTheme,
@@ -1565,7 +2305,10 @@
     nextStop,
     prevStop,
     copyCurrentAddress,
-    sendWhatsAppMessage,
+    copyRouteSummary,
+    centerMapOnCurrent,
+    fitAllStopsMap,
+    installPwa,
     jumpFromSearch,
     openMultiBatchModal,
     showToast

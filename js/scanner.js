@@ -5,6 +5,7 @@
 const PackageScanner = (function () {
   let html5QrCode = null;
   let isScanning = false;
+  let isPaused = false;
   let scannedSet = new Set();
   let onScanCallback = null;
 
@@ -90,9 +91,11 @@ const PackageScanner = (function () {
         () => {}
       );
       isScanning = true;
+      isPaused = false;
     } catch (err) {
       console.warn("Camera start failed, falling back to manual input", err);
       isScanning = false;
+      isPaused = false;
     }
   }
 
@@ -105,11 +108,41 @@ const PackageScanner = (function () {
       console.warn(e);
     }
     isScanning = false;
+    isPaused = false;
+  }
+
+  function pauseScanning() {
+    isPaused = true;
+    if (html5QrCode && isScanning) {
+      try {
+        if (typeof html5QrCode.pause === "function") {
+          html5QrCode.pause(true);
+        }
+      } catch (e) {
+        console.warn("Could not pause html5QrCode feed:", e);
+      }
+    }
+  }
+
+  function resumeScanning() {
+    isPaused = false;
+    if (html5QrCode && isScanning) {
+      try {
+        if (typeof html5QrCode.resume === "function") {
+          html5QrCode.resume();
+        }
+      } catch (e) {
+        console.warn("Could not resume html5QrCode feed:", e);
+      }
+    }
   }
 
   function handleDecodedCode(decodedText, stops) {
+    if (isPaused) return;
+
     const match = findPackage(decodedText, stops);
     if (match) {
+      pauseScanning();
       playBeep(true);
       scannedSet.add(match.item.tn);
       if (onScanCallback) {
@@ -142,6 +175,8 @@ const PackageScanner = (function () {
   return {
     startCamera,
     stopCamera,
+    pauseScanning,
+    resumeScanning,
     handleDecodedCode,
     manualSearch,
     getScannedCount,
@@ -157,3 +192,4 @@ if (typeof window !== "undefined") {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = PackageScanner;
 }
+

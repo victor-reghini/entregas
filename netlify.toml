@@ -1,4 +1,4 @@
-# Netlify Configuration for SPX Express Delivery App
+# Netlify Configuration for Organiza Entregas PWA
 
 [build]
   command = "node scripts/inject-env.js"
@@ -15,6 +15,12 @@
   [headers.values]
     Permissions-Policy = "camera=(self), geolocation=(self)"
 
+# Service Worker nunca deve ter cache agressivo para permitir updates instantâneos
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
 # Cache inteligente para assets estáticos
 [[headers]]
   for = "/css/*"
@@ -25,3 +31,13 @@
   for = "/js/*"
   [headers.values]
     Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+[[headers]]
+  for = "/vendor/*"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000, immutable"
+
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=2592000, immutable"

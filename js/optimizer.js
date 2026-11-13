@@ -58,6 +58,112 @@ const RouteOptimizer = (function () {
     return { street, number, complement };
   }
 
+  // Extract apartment and unit information
+  function extractApartmentInfo(complement, rawAddress = "") {
+    const text = `${complement || ""} ${rawAddress || ""}`.trim();
+
+    // Extract Bloco / Torre
+    let block = null;
+    const blockMatch = text.match(/\b(?:bloco|bl\.?|bl|torre)\s*[-:#]?\s*([0-9a-zA-Z]+)\b/i);
+    if (blockMatch) {
+      block = blockMatch[1].toUpperCase();
+    }
+
+    // Apartment: ap, apt, apto, apartamento
+    const aptMatch = text.match(/\b(?:ap(?:to|t)?\.?|apartamento)\s*[-:#]?\s*([0-9]+[a-zA-Z]?|[a-zA-Z][0-9]+|[a-zA-Z]\b)/i);
+    const salaMatch = !aptMatch ? text.match(/\b(?:sala|conjunto|cj\.?)\s*[-:#]?\s*([0-9]+[a-zA-Z]?)\b/i) : null;
+    const casaMatch = !aptMatch && !salaMatch ? text.match(/\b(?:casa|sobrado)\s*[-:#]?\s*([0-9]+[a-zA-Z]?)\b/i) : null;
+    // Pure number fallback in complement (e.g. "Rua X, 100, 102" -> complement is "102")
+    const pureNumMatch = (!aptMatch && !salaMatch && !casaMatch && complement)
+      ? complement.trim().match(/^(\d{1,5}[a-zA-Z]?)$/)
+      : null;
+
+    const match = aptMatch || salaMatch || casaMatch || pureNumMatch;
+
+    if (match) {
+      const rawVal = match[1].toUpperCase();
+      let prefix = "Ap";
+      if (salaMatch) prefix = "Sala";
+      else if (casaMatch) prefix = "Casa";
+
+      const numOnly = parseInt(rawVal.replace(/\D/g, ""), 10);
+      const numVal = isNaN(numOnly) ? 0 : numOnly;
+      const blockKey = block ? `BL_${block}` : "BL_NONE";
+      const aptKey = `${prefix.toUpperCase()}_${rawVal}`;
+      const groupKey = `${blockKey}|${aptKey}`;
+      const displayLabel = block ? `Bl. ${block} • ${prefix} ${rawVal}` : `${prefix} ${rawVal}`;
+
+      return {
+        hasApartment: true,
+        block,
+        apartmentNumber: rawVal,
+        numericValue: numVal,
+        groupKey,
+        displayLabel
+      };
+    }
+
+    return {
+      hasApartment: false,
+      block: null,
+      apartmentNumber: null,
+      numericValue: 0,
+      groupKey: "NO_APT",
+      displayLabel: null
+    };
+  }
+
+  // Sort packages inside a physical stop by apartment
+  function sortItemsByApartment(items) {
+    return items.sort((a, b) => {
+      const aptA = a.apartmentInfo || { hasApartment: false };
+      const aptB = b.apartmentInfo || { hasApartment: false };
+
+      if (aptA.hasApartment && !aptB.hasApartment) return -1;
+      if (!aptA.hasApartment && aptB.hasApartment) return 1;
+      if (!aptA.hasApartment && !aptB.hasApartment) return 0;
+
+      const blockA = (aptA.block || "").toUpperCase();
+      const blockB = (aptB.block || "").toUpperCase();
+      if (blockA !== blockB) {
+        if (!blockA) return 1;
+        if (!blockB) return -1;
+        return blockA.localeCompare(blockB, undefined, { numeric: true });
+      }
+
+      if (aptA.numericValue && aptB.numericValue && aptA.numericValue !== aptB.numericValue) {
+        return aptA.numericValue - aptB.numericValue;
+      }
+
+      return (aptA.apartmentNumber || "").localeCompare(aptB.apartmentNumber || "", undefined, { numeric: true });
+    });
+  }
+
+  // Count distinct delivery addresses (each apartment counts as a different address)
+  function countDistinctAddresses(items) {
+    if (!items || items.length === 0) return 0;
+    const aptSet = new Set();
+    let hasNonApt = false;
+    items.forEach((it) => {
+      if (it.apartmentInfo && it.apartmentInfo.hasApartment) {
+        aptSet.add(it.apartmentInfo.groupKey);
+      } else {
+        hasNonApt = true;
+      }
+    });
+    return aptSet.size + (hasNonApt ? 1 : 0);
+  }
+
+  function formatDuration(totalMinutes) {
+    if (!totalMinutes || totalMinutes <= 0) return "0 min";
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = Math.round(totalMinutes % 60);
+    if (hours > 0) {
+      return mins > 0 ? `${hours}h ${String(mins).padStart(2, "0")}min` : `${hours}h`;
+    }
+    return `${mins} min`;
+  }
+
   // Parse CSV (supports comma or semicolon, quoted fields)
   function parseCSV(text) {
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -155,11 +261,13 @@ const RouteOptimizer = (function () {
           items: []
         });
       }
+      const apartmentInfo = extractApartmentInfo(complement, r.address);
       stopMap.get(key).items.push({
         tn: r.tn,
         address: r.address,
         complement: complement || "Sem complemento",
-        atId: r.atId
+        atId: r.atId,
+        apartmentInfo
       });
     });
 
@@ -247,10 +355,18 @@ const RouteOptimizer = (function () {
       orderedStops.reverse();
     }
 
-    // 6. Assign IDs and sequential metadata
+    // 6. Assign IDs, sort packages by apartment, and sequential metadata
     let packageSeq = 0;
+    let totalDistinctAddresses = 0;
+
     orderedStops.forEach((s, idx) => {
       s.id = idx + 1;
+      // Sort items within each stop by apartment
+      sortItemsByApartment(s.items);
+      s.distinctAddresses = countDistinctAddresses(s.items);
+      s.estimatedMinutes = s.distinctAddresses * 3;
+      totalDistinctAddresses += s.distinctAddresses;
+
       s.items.forEach((it) => {
         packageSeq += 1;
         it.seq = packageSeq;
@@ -258,10 +374,37 @@ const RouteOptimizer = (function () {
       });
     });
 
+    // 7. Calculate travel distance and total estimated time
+    let totalDistanceMeters = 0;
+    for (let i = 0; i < orderedStops.length - 1; i++) {
+      const d = haversineMeters(
+        orderedStops[i].lat,
+        orderedStops[i].lon,
+        orderedStops[i + 1].lat,
+        orderedStops[i + 1].lon
+      );
+      totalDistanceMeters += d;
+    }
+
+    const serviceMinutes = totalDistinctAddresses * 3;
+    const totalDistanceKm = parseFloat((totalDistanceMeters / 1000).toFixed(1));
+    // Estimate transit: ~22 km/h city average, or fallback ~2 min per transit between stops if no coords
+    const transitMinutes = totalDistanceKm > 0
+      ? Math.round((totalDistanceKm / 22) * 60)
+      : Math.max(0, (orderedStops.length - 1) * 2);
+    const estimatedMinutes = serviceMinutes + transitMinutes;
+    const estimatedDurationStr = formatDuration(estimatedMinutes);
+
     return {
       stops: orderedStops,
       totalPackages: packageSeq,
-      streetsCount: streetsMap.size
+      streetsCount: streetsMap.size,
+      totalDistinctAddresses,
+      serviceMinutes,
+      transitMinutes,
+      totalDistanceKm,
+      estimatedMinutes,
+      estimatedDurationStr
     };
   }
 
@@ -308,7 +451,11 @@ const RouteOptimizer = (function () {
     buildGoogleMapsRouteUrl,
     buildSingleStopGoogleMapsUrl,
     buildWazeUrl,
-    haversineMeters
+    haversineMeters,
+    extractApartmentInfo,
+    sortItemsByApartment,
+    countDistinctAddresses,
+    formatDuration
   };
 })();
 

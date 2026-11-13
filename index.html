@@ -4,25 +4,43 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="theme-color" content="#ee4d2d" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="manifest" href="manifest.json" />
-  <title>SPX Rotas — Entregas Shopee Express</title>
+  <meta name="apple-mobile-web-app-title" content="Organiza Entregas" />
+  <meta name="application-name" content="Organiza Entregas" />
+  <meta name="description" content="Organizador e roteirizador de entregas com suporte offline" />
   
-  <!-- Leaflet Map CSS & JS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png" />
+  <title>Organiza Entregas</title>
+  
+  <script>
+    try {
+      const savedTheme = localStorage.getItem("spx_theme_preference") || "dark";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    } catch (_) {}
+  </script>
+  
+  <!-- Leaflet Map CSS & JS (Local Offline-First) -->
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <script src="vendor/leaflet.js"></script>
 
-  <!-- SheetJS para ler planilhas XLSX / XLS -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- SheetJS para ler planilhas XLSX / XLS (Local Offline-First) -->
+  <script src="vendor/xlsx.full.min.js"></script>
 
-  <!-- HTML5 QR Code & Barcode Scanner -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- HTML5 QR Code & Barcode Scanner (Local Offline-First) -->
+  <script src="vendor/html5-qrcode.min.js"></script>
 
-  <!-- Firebase Compat SDK (Auth & Firestore) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- Firebase Compat SDK (Auth & Firestore Local Offline-First) -->
+  <script src="vendor/firebase-app-compat.js"></script>
+  <script src="vendor/firebase-auth-compat.js"></script>
+  <script src="vendor/firebase-firestore-compat.js"></script>
 
   <!-- App Stylesheet -->
   <link rel="stylesheet" href="css/style.css" />
@@ -31,21 +49,22 @@
   <!-- HEADER COMPACTO MOBILE-FIRST -->
   <header class="app-header">
     <div class="brand-wrap">
-      <span class="shopee-badge">SPX</span>
-      <span class="brand-title">Rotas</span>
+      <img src="icons/icon.svg" width="28" height="28" alt="Ícone Organiza Entregas" style="border-radius:6px; flex-shrink:0;" />
+      <span class="brand-title">Organiza Entregas</span>
     </div>
 
     <div class="header-actions">
-      <!-- Badge de progresso (exibido apenas quando há rota carregada) -->
-      <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
-      
-      <!-- Botão de Login (visível APENAS quando deslogado) -->
-      <button class="btn btn-primary header-login-btn" id="btnHeaderLogin" onclick="app.openAuthModal()">
-        Entrar
+      <!-- Botão de Instalar PWA no Celular -->
+      <button type="button" class="btn btn-outline header-install-btn" id="btnInstallPwa" onclick="app.installPwa()" aria-label="Instalar App no Celular">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+        Instalar
       </button>
 
+      <!-- Badge de progresso (exibido apenas quando há rota carregada) -->
+      <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
+
       <!-- Botão do Menu da Conta (Dropdown) -->
-      <button class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true" onclick="app.toggleAccountMenu(event)">
+      <button type="button" class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
         <span id="userAvatarText" class="user-avatar">?</span>
         <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
       </button>
@@ -57,14 +76,21 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
-        <button class="dropdown-item" id="menuItemHistory" onclick="app.openHistoryModal()">
+        <button type="button" class="dropdown-item" id="menuItemInstallApp">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Instalar Aplicativo</span>
+          </div>
+        </button>
+
+        <button type="button" class="dropdown-item" id="menuItemHistory">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Histórico de Rotas</span>
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemTheme" onclick="app.toggleTheme()">
+        <button type="button" class="dropdown-item" id="menuItemTheme">
           <div class="dropdown-item-content">
             <span id="menuThemeIcon">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -73,16 +99,18 @@
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemSettings" onclick="app.openSettingsModal()">
+        <div class="dropdown-divider"></div>
+
+        <!-- Botão Entrar dentro do Menu -->
+        <button type="button" class="dropdown-item" id="menuItemLogin" style="color:var(--primary); font-weight:700;">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            <span>Configurações</span>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="10 17 15 12 10 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Entrar na Conta</span>
           </div>
         </button>
 
         <div id="menuAuthActionSection" class="hidden">
-          <div class="dropdown-divider"></div>
-          <button class="dropdown-item dropdown-item-danger" id="menuItemLogout" onclick="app.logout()">
+          <button type="button" class="dropdown-item dropdown-item-danger" id="menuItemLogout">
             <div class="dropdown-item-content">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
               <span>Sair da Conta</span>
@@ -112,6 +140,23 @@
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         Roteirizador Inteligente Sem Zigue-Zague
       </div>
+
+      <!-- Banner de Instalação PWA Mobile -->
+      <div id="pwaHomeInstallBanner" class="pwa-install-banner">
+        <div class="pwa-install-banner-text">
+          <div class="pwa-install-banner-title">
+            <svg class="icon" width="20" height="20" viewBox="0 0 24 24" style="color:var(--primary); flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Instalar App no Celular</span>
+          </div>
+          <div class="meta-text" style="font-size:0.84rem; text-align:center; max-width:380px; line-height:1.4;">
+            Use 100% offline em qualquer lugar, mesmo sem sinal de internet na rua!
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="app.installPwa()" style="width:auto; padding:8px 24px; font-weight:700; border-radius:var(--radius-full); box-shadow:var(--shadow-sm);">
+          Instalar Agora
+        </button>
+      </div>
+
       <h2 class="title-lg">Gerar Rota por Planilha SPX</h2>
       <p class="meta-text" style="margin-bottom:14px;">
         Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da numeração.
@@ -148,13 +193,20 @@
             <div class="stat-lbl">Paradas Únicas</div>
           </div>
           <div class="stat-box">
+            <div class="stat-val" id="statTotalAddresses" style="color:var(--info, #0284c7);">0</div>
+            <div class="stat-lbl">Endereços / Apts</div>
+          </div>
+          <div class="stat-box">
             <div class="stat-val" id="statTotalPackages">0</div>
             <div class="stat-lbl">Pacotes Totais</div>
           </div>
           <div class="stat-box">
-            <div class="stat-val" id="statStreetsCount">0</div>
-            <div class="stat-lbl">Ruas Mapeadas</div>
+            <div class="stat-val" id="statEstimatedTime" style="color:var(--warning-text, #f59e0b);">0h 00m</div>
+            <div class="stat-lbl">Tempo Estimado</div>
           </div>
+        </div>
+        <div id="statEstimatedTimeSub" class="meta-text" style="text-align:center; margin-top:-6px; margin-bottom:12px; font-size:0.75rem;">
+          ⏱️ 3 min por endereço/apartamento + deslocamento
         </div>
 
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
@@ -397,6 +449,45 @@
           <div class="meta-text" id="scanComplement">-</div>
           <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);" id="scanTnCode"></div>
         </div>
+
+        <!-- Seção da Ordem de Carregamento (Ordem Inversa da Entrega) -->
+        <div class="organize-load-section" id="organizeLoadSection">
+          <div class="organize-load-header">
+            <div>
+              <div class="kicker" style="margin-bottom:2px;">
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                Ordem de Carregamento (Inversa)
+              </div>
+              <div style="font-weight:800; font-size:1.05rem;">Organização do Veículo (Fundo ➔ Porta)</div>
+            </div>
+            <span class="badge" id="organizeLoadingProgressBadge">0 de 0 no carro</span>
+          </div>
+
+          <p class="meta-text" style="margin-bottom:12px; font-size:0.8rem; line-height:1.4;">
+            Carregue os pacotes no carro de cima para baixo: os primeiros itens vão no <strong>fundo do carro</strong> (últimas paradas), deixando as primeiras entregas acessíveis na <strong>porta</strong>.
+          </p>
+
+          <!-- Filtros Rápidos -->
+          <div class="load-filter-pills" id="loadFilterPills">
+            <button type="button" class="filter-pill active" data-load-filter="all" onclick="app.setLoadingFilter('all')">
+              Todos (<span id="loadFilterCountAll">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="pending" onclick="app.setLoadingFilter('pending')">
+              Pendentes (<span id="loadFilterCountPending">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="checked" onclick="app.setLoadingFilter('checked')">
+              No Carro (<span id="loadFilterCountChecked">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="photo" onclick="app.setLoadingFilter('photo')">
+              Com Foto (<span id="loadFilterCountPhoto">0</span>)
+            </button>
+          </div>
+
+          <!-- Lista de Itens em Ordem Inversa -->
+          <div id="loadingOrderListContainer" class="loading-order-list">
+            <!-- Renderizado dinamicamente via JS -->
+          </div>
+        </div>
       </div>
 
       <!-- ABA 4: MAPA INTERATIVO -->
@@ -406,10 +497,16 @@
             <div class="kicker">Visão Geral Geográfica</div>
             <div style="font-weight:800; font-size:1.1rem;">Trajeto da Rota e Paradas</div>
           </div>
-          <button class="btn btn-outline btn-sm" id="btnCenterMap" style="width:auto;">
-            <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="22" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="2"/><line x1="6" y1="12" x2="2" y2="12" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="2" stroke="currentColor" stroke-width="2"/><line x1="12" y1="22" x2="12" y2="18" stroke="currentColor" stroke-width="2"/></svg>
-            Centralizar Parada
-          </button>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-outline btn-sm" id="btnFitAllMap" style="width:auto; padding:5px 8px;" onclick="app.fitAllStopsMap()" title="Ver todas as paradas">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              Ver Todas
+            </button>
+            <button class="btn btn-outline btn-sm" id="btnCenterMap" style="width:auto; padding:5px 8px;" onclick="app.centerMapOnCurrent()" title="Focar parada atual">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="22" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="2"/><line x1="6" y1="12" x2="2" y2="12" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="2" stroke="currentColor" stroke-width="2"/><line x1="12" y1="22" x2="12" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+              Focar Atual
+            </button>
+          </div>
         </div>
         <div id="map"></div>
       </div>
@@ -446,9 +543,9 @@
           <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
           Baixar Relatório em CSV (Excel)
         </button>
-        <button class="btn btn-secondary" id="btnCopyWhatsApp">
+        <button class="btn btn-secondary" id="btnCopySummary" onclick="app.copyRouteSummary()">
           <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          Copiar Resumo para WhatsApp
+          Copiar Resumo da Rota
         </button>
         <button class="btn btn-outline btn-sm" id="btnResetRoute">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -479,8 +576,147 @@
   </main>
 
   <!-- ==========================================
-       MODAIS (HISTÓRICO, FIREBASE AUTH, MULTI-MAPS)
+       MODAIS (SCANNER, HISTÓRICO, FIREBASE AUTH, MULTI-MAPS)
        ========================================== -->
+
+  <!-- Modal Dados do Pacote Escaneado (Organizar) -->
+  <div id="modalScanPackage" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content scan-modal-card">
+      <div class="modal-header">
+        <div class="kicker" style="color:var(--success-text); margin-bottom:0;">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          Pacote Identificado
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeScanModal()" aria-label="Fechar e voltar para a câmera">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+
+      <div style="text-align:center; padding:4px 0;">
+        <div class="scan-big-number" id="modalScanStopNumber">PARADA #--</div>
+        <div style="display:flex; justify-content:center; align-items:center; gap:6px; flex-wrap:wrap; margin-top:2px;">
+          <div class="badge badge-primary" style="font-size:0.9rem; padding:4px 12px;" id="modalScanPackageOrder">Pacote #-- de --</div>
+          <div id="modalScanApartment" class="badge hidden" style="font-size:0.9rem; padding:4px 12px; background:rgba(238,77,45,0.15); color:var(--primary); font-weight:800; border:1px solid rgba(238,77,45,0.3);"></div>
+        </div>
+      </div>
+
+      <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-top:4px;">
+        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Endereço de Entrega:</div>
+        <div style="font-weight:800; font-size:1.05rem; margin-top:3px;" id="modalScanAddress">-</div>
+        <div class="meta-text" id="modalScanComplement" style="margin-top:2px;">-</div>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">
+          <span>Código de Rastreio: </span><strong id="modalScanTnCode" style="color:var(--text);">-</strong>
+        </div>
+      </div>
+
+      <!-- Seção de Foto Aberta do Pacote -->
+      <div class="scan-photo-card" id="modalScanPhotoCard">
+        <div id="modalScanNoPhotoBox" class="scan-photo-placeholder">
+          <div style="font-weight:700; font-size:0.85rem; color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Foto Aberta do Pacote
+          </div>
+          <p class="meta-text" style="font-size:0.78rem; text-align:center; margin:3px 0 8px 0;">
+            Afaste o celular para fotografar o pacote inteiro e achar rápido na entrega!
+          </p>
+          <button type="button" class="btn btn-outline btn-sm" id="btnModalTakePic" onclick="app.triggerPackagePhotoCapture()" style="width:100%; justify-content:center; padding:8px 12px; font-weight:700;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Tirar Foto Aberta do Pacote
+          </button>
+        </div>
+
+        <div id="modalScanHasPhotoBox" class="scan-photo-preview-wrap hidden">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <span style="font-size:0.75rem; font-weight:700; color:var(--success-text); display:flex; align-items:center; gap:4px;">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+              Foto salva para a rota
+            </span>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.triggerPackagePhotoCapture()">Trocar</button>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.deleteCurrentPackagePhoto()" style="color:var(--danger-text);">Excluir</button>
+            </div>
+          </div>
+          <img id="modalScanPhotoImg" src="" alt="Foto do Pacote" class="scan-photo-preview-img" onclick="app.viewPhotoLarge(this.src)" />
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+        <button type="button" class="btn btn-primary" id="btnOkScanNext" onclick="app.closeScanModal()" style="font-size:1.05rem; padding:12px; justify-content:center;">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          OK (Escanear Próximo)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Como Instalar PWA no Celular -->
+  <div id="modalInstallApp" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content install-modal-card">
+      <div class="modal-header">
+        <div class="kicker" style="color:var(--primary); margin-bottom:0;">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+          Instalar no Celular
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeModal('modalInstallApp')" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+
+      <div style="text-align:center; padding:10px 0;">
+        <img src="icons/icon.svg" width="60" height="60" alt="Organiza Entregas" style="border-radius:14px; box-shadow:0 6px 16px rgba(238,77,45,0.25);" />
+        <h3 style="font-weight:900; font-size:1.15rem; margin-top:10px;">Instalar Organiza Entregas</h3>
+        <p class="meta-text" style="font-size:0.84rem;">Instale como aplicativo nativo para usar 100% offline mesmo sem sinal de internet na rua.</p>
+      </div>
+
+      <!-- Instruções Específicas para iPhone / iOS Safari -->
+      <div id="installGuideIos" class="install-guide-box">
+        <div class="install-guide-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-text">
+            No Safari, toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima <svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 6 12 2 8 6" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>) na barra inferior do iPhone.
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-text">
+            Role a lista de opções para cima e toque em <strong>"Adicionar à Tela de Início"</strong> (<svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2"/></svg>).
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-text">
+            Toque em <strong>"Adicionar"</strong> no canto superior direito. Pronto! O app aparecerá na tela do seu iPhone.
+          </div>
+        </div>
+      </div>
+
+      <!-- Instruções para Android / Outros Navegadores -->
+      <div id="installGuideAndroid" class="install-guide-box hidden">
+        <div class="install-guide-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-text">
+            Toque no menu do navegador (três pontinhos <strong>⋮</strong> no canto superior direito).
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-text">
+            Selecione a opção <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-text">
+            Confirme tocando em <strong>"Instalar"</strong>.
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-primary" onclick="app.closeModal('modalInstallApp')" style="margin-top:10px; width:100%; justify-content:center;">
+        Entendi!
+      </button>
+    </div>
+  </div>
 
   <!-- Modal Histórico de Rotas Salvas -->
   <div id="modalHistory" class="modal-overlay hidden">
@@ -554,30 +790,36 @@
     </div>
   </div>
 
-  <!-- Modal Configurações Firebase -->
-  <div id="modalSettings" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 style="font-weight:800; font-size:1.1rem;">Configurações do Firebase</h3>
-        <button class="icon-btn" onclick="app.closeModal('modalSettings')" aria-label="Fechar">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+  <!-- Modal Visualizador de Foto Aberta do Pacote -->
+  <div id="modalPhotoViewer" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width:440px; padding:14px; text-align:center;">
+      <div class="modal-header" style="margin-bottom:10px;">
+        <div style="font-weight:800; font-size:1rem; display:flex; align-items:center; gap:6px;">
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <span id="photoViewerTitle">Foto da Embalagem</span>
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeModal('modalPhotoViewer')" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
         </button>
       </div>
-      <p class="meta-text">
-        Configurações do seu projeto Firebase (sincronização na nuvem):
-      </p>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <input type="text" id="cfgApiKey" class="input-field" placeholder="apiKey (ex: AIzaSy...)" />
-        <input type="text" id="cfgAuthDomain" class="input-field" placeholder="authDomain (ex: seu-app.firebaseapp.com)" />
-        <input type="text" id="cfgProjectId" class="input-field" placeholder="projectId (ex: seu-app-id)" />
-        <input type="text" id="cfgStorageBucket" class="input-field" placeholder="storageBucket" />
-        <input type="text" id="cfgMessagingSenderId" class="input-field" placeholder="messagingSenderId" />
-        <input type="text" id="cfgAppId" class="input-field" placeholder="appId" />
-
-        <button class="btn btn-primary" onclick="handleSaveFirebaseConfig()">Salvar e Inicializar Firebase</button>
+      <div style="border-radius:var(--radius-sm); overflow:hidden; background:#0a0a0c; display:flex; align-items:center; justify-content:center; max-height:65vh; border:1px solid var(--border);">
+        <img id="photoViewerImg" src="" alt="Foto Ampliada do Pacote" style="max-width:100%; max-height:65vh; object-fit:contain; display:block;" />
+      </div>
+      <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <span class="meta-text" id="photoViewerMeta" style="font-size:0.8rem; text-align:left;"></span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="app.closeModal('modalPhotoViewer')">Fechar</button>
       </div>
     </div>
   </div>
+
+  <!-- Input Oculto de Câmera para Captura da Foto do Pacote -->
+  <input
+    type="file"
+    id="packagePhotoFileInput"
+    accept="image/*"
+    capture="environment"
+    style="display:none;"
+  />
 
   <!-- Toast Notification Container -->
   <div id="toastNotice" class="toast-notice hidden"></div>
@@ -588,6 +830,7 @@
   <script src="js/icons.js"></script>
   <script src="js/optimizer.js"></script>
   <script src="js/scanner.js"></script>
+  <script src="js/photo-storage.js"></script>
   <script src="js/firebase-service.js"></script>
   <script src="js/app.js"></script>
 
@@ -643,32 +886,16 @@
       });
     }
 
-    function handleSaveFirebaseConfig() {
-      const cfg = {
-        apiKey: document.getElementById('cfgApiKey').value.trim(),
-        authDomain: document.getElementById('cfgAuthDomain').value.trim(),
-        projectId: document.getElementById('cfgProjectId').value.trim(),
-        storageBucket: document.getElementById('cfgStorageBucket').value.trim(),
-        messagingSenderId: document.getElementById('cfgMessagingSenderId').value.trim(),
-        appId: document.getElementById('cfgAppId').value.trim()
-      };
-      FirebaseService.setStoredConfig(cfg);
-      app.closeModal('modalSettings');
-      app.showToast('Configurações do Firebase salvas!');
-    }
-
     // Exposição global garantida para cliques inline
     window.handleEmailLogin = handleEmailLogin;
     window.handleEmailRegister = handleEmailRegister;
     window.handleGoogleLogin = handleGoogleLogin;
     window.handleLogout = handleLogout;
-    window.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
     if (window.app) {
       window.app.handleEmailLogin = handleEmailLogin;
       window.app.handleEmailRegister = handleEmailRegister;
       window.app.handleGoogleLogin = handleGoogleLogin;
       window.app.handleLogout = handleLogout;
-      window.app.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
     }
   </script>
 </body>

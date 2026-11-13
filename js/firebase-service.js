@@ -1,20 +1,8 @@
 // Firebase Service Layer (Auth & Firestore Sync)
 // Works 100% offline/locally by default, and automatically syncs to Firebase
-// once the user pastes their Firebase Project credentials.
+// when environment variables are supplied (Netlify or .env via window.__ENV__).
 
 const FirebaseService = (function () {
-  // Pre-configured or user-provided Firebase configuration
-  // You can paste your Firebase Config here directly, or enter it in the app Settings UI!
-  // Default fallback configuration (Populated from window.__ENV__ or localStorage)
-  const DEFAULT_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
-  };
-
   let isInitialized = false;
   let auth = null;
   let db = null;
@@ -33,30 +21,13 @@ const FirebaseService = (function () {
     };
   }
 
-  function getStoredConfig() {
+  function initFirebase() {
+    // Purge any legacy stored config in localStorage to prevent exposure
     try {
-      const stored = localStorage.getItem("spx_firebase_config");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && parsed.apiKey) return parsed;
-      }
-    } catch (e) {}
-    const envCfg = getEnvConfig();
-    if (envCfg && envCfg.apiKey) return envCfg;
-    return DEFAULT_CONFIG;
-  }
+      localStorage.removeItem("spx_firebase_config");
+    } catch (_) {}
 
-  function setStoredConfig(cfg) {
-    try {
-      localStorage.setItem("spx_firebase_config", JSON.stringify(cfg));
-      initFirebase(cfg);
-    } catch (e) {
-      console.warn("Error saving config", e);
-    }
-  }
-
-  function initFirebase(cfg = null) {
-    const config = cfg || getStoredConfig();
+    const config = getEnvConfig();
     if (!config || !config.apiKey || !config.projectId) {
       // Offline / Local Mode
       isInitialized = false;
@@ -99,13 +70,13 @@ const FirebaseService = (function () {
       } else {
         currentUser = {
           uid: "local-driver",
-          displayName: "Entregador SPX",
-          email: "entregador@spx.local",
+          displayName: "Entregador",
+          email: "entregador@local.app",
           isLocal: true
         };
       }
     } catch (e) {
-      currentUser = { uid: "local-driver", displayName: "Entregador SPX", isLocal: true };
+      currentUser = { uid: "local-driver", displayName: "Entregador", isLocal: true };
     }
     notifyAuthCallbacks(currentUser);
   }
@@ -208,7 +179,7 @@ const FirebaseService = (function () {
       deliveredCount: routeSummary.deliveredCount || 0,
       failedCount: routeSummary.failedCount || 0,
       successRate: Math.round(((routeSummary.deliveredCount || 0) / (routeSummary.totalPackages || 1)) * 100),
-      region: routeSummary.region || "Rota SPX",
+      region: routeSummary.region || "Organiza Entregas",
       details: routeSummary.details || []
     };
 
@@ -262,8 +233,6 @@ const FirebaseService = (function () {
 
   return {
     initFirebase,
-    getStoredConfig,
-    setStoredConfig,
     isConfigured: () => isInitialized,
     getUser: () => currentUser,
     onAuthChange,
