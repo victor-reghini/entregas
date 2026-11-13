@@ -62,11 +62,6 @@
 
       <!-- Badge de progresso (exibido apenas quando há rota carregada) -->
       <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
-      
-      <!-- Botão de Login (visível APENAS quando deslogado) -->
-      <button type="button" class="btn btn-primary header-login-btn" id="btnHeaderLogin" onclick="app.openAuthModal()">
-        Entrar
-      </button>
 
       <!-- Botão do Menu da Conta (Dropdown) -->
       <button type="button" class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
@@ -104,8 +99,17 @@
           </div>
         </button>
 
+        <div class="dropdown-divider"></div>
+
+        <!-- Botão Entrar dentro do Menu -->
+        <button type="button" class="dropdown-item" id="menuItemLogin" style="color:var(--primary); font-weight:700;">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="10 17 15 12 10 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Entrar na Conta</span>
+          </div>
+        </button>
+
         <div id="menuAuthActionSection" class="hidden">
-          <div class="dropdown-divider"></div>
           <button type="button" class="dropdown-item dropdown-item-danger" id="menuItemLogout">
             <div class="dropdown-item-content">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>

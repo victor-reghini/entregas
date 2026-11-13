@@ -1668,23 +1668,23 @@
 
     // Firebase Auth sync & User Data Isolation
     FirebaseService.onAuthChange((user) => {
-      const btnLogin = document.getElementById("btnHeaderLogin");
+      const menuLogin = document.getElementById("menuItemLogin");
       const avatarText = document.getElementById("userAvatarText");
       const menuName = document.getElementById("menuUserName");
       const menuEmail = document.getElementById("menuUserEmail");
       const authSection = document.getElementById("menuAuthActionSection");
 
       if (user && !user.isLocal) {
-        // User is logged in: HIDE login button, show avatar initial & profile info
-        if (btnLogin) btnLogin.classList.add("hidden");
+        // User is logged in: HIDE login item in menu, show avatar initial & profile info
+        if (menuLogin) menuLogin.classList.add("hidden");
         const initial = (user.displayName || user.email || "U").charAt(0).toUpperCase();
         if (avatarText) avatarText.textContent = initial;
         if (menuName) menuName.textContent = user.displayName || user.email.split("@")[0];
         if (menuEmail) menuEmail.textContent = user.email;
         if (authSection) authSection.classList.remove("hidden");
       } else {
-        // User is guest: SHOW login button, show default guest menu
-        if (btnLogin) btnLogin.classList.remove("hidden");
+        // User is guest: SHOW login item in menu, show default guest menu
+        if (menuLogin) menuLogin.classList.remove("hidden");
         if (avatarText) avatarText.textContent = "?";
         if (menuName) menuName.textContent = "Visitante";
         if (menuEmail) menuEmail.textContent = "Não conectado";
@@ -1732,8 +1732,13 @@
     updateInstallUiState();
 
     // Menu Actions
-    const btnLogin = document.getElementById("btnHeaderLogin");
-    if (btnLogin) btnLogin.addEventListener("click", openAuthModal);
+    const menuLogin = document.getElementById("menuItemLogin");
+    if (menuLogin) {
+      menuLogin.addEventListener("click", () => {
+        closeDropdown();
+        openAuthModal();
+      });
+    }
 
     const menuInstall = document.getElementById("menuItemInstallApp");
     if (menuInstall) menuInstall.addEventListener("click", installPwa);
