@@ -301,6 +301,11 @@
     document.getElementById("statTotalPackages").textContent = state.route.totalPackages;
     document.getElementById("statStreetsCount").textContent = state.route.streetsCount;
 
+    const btnFullRoute = document.getElementById("btnOpenFullRouteDirect");
+    if (btnFullRoute) {
+      btnFullRoute.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+    }
+
     listContainer.innerHTML = state.route.stops
       .map(
         (s) => `
@@ -354,11 +359,19 @@
     const btnNav = document.getElementById("btnNavigateSingle");
     btnNav.href = RouteOptimizer.buildSingleStopGoogleMapsUrl(stop);
 
-    // Multi-stop Batch Button
+    // Multi-stop Batch Button (Android Auto compatible)
     const btnMulti = document.getElementById("btnNavigateMultiBatch");
-    const nextStopsBatchCount = Math.min(9, state.route.stops.length - state.activeStopIdx);
-    btnMulti.textContent = `Navegar Trecho (${stop.id} até ${stop.id + nextStopsBatchCount - 1} no Google Maps)`;
-    btnMulti.href = RouteOptimizer.buildGoogleMapsBatchUrl(state.route.stops, state.activeStopIdx, 9);
+    const nextStopsBatchCount = Math.min(10, state.route.stops.length - state.activeStopIdx);
+    const endStop = state.route.stops[state.activeStopIdx + nextStopsBatchCount - 1];
+    btnMulti.innerHTML = `
+      ${renderIcon("navigation", 16)} Navegar Próximas ${nextStopsBatchCount} Paradas (#${stop.id} a #${endStop.id})
+    `;
+    btnMulti.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops, state.activeStopIdx, 10);
+
+    const btnCurFull = document.getElementById("btnCurrentStopFullRoute");
+    if (btnCurFull) {
+      btnCurFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+    }
 
     // Arrival button state & Package List (Always visible as preview)
     const btnArrived = document.getElementById("btnMarkArrived");
@@ -561,6 +574,11 @@
   function renderFullStopsList() {
     const list = document.getElementById("fullStopsListContainer");
     if (!state.route) return;
+
+    const btnAllFull = document.getElementById("btnAllStopsFullMaps");
+    if (btnAllFull) {
+      btnAllFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+    }
 
     list.innerHTML = state.route.stops
       .map((s, idx) => {
@@ -925,35 +943,59 @@
   }
 
   function openMultiBatchModal() {
-    if (!state.route) return;
+    if (!state.route || state.route.stops.length === 0) return;
     const container = document.getElementById("multiBatchList");
     const stops = state.route.stops;
-    const batchSize = 9;
+    const fullRouteUrl = RouteOptimizer.buildGoogleMapsRouteUrl(stops);
+    const batchSize = 10;
     const batches = [];
 
-    for (let i = 0; i < stops.length; i += batchSize) {
+    // Continuous overlapping legs: leg 0: 0..9 (stops 1..10), leg 1: 9..18 (stops 10..19), etc.
+    for (let i = 0; i < stops.length; i += (batchSize - 1)) {
       const slice = stops.slice(i, i + batchSize);
+      if (slice.length <= 1 && batches.length > 0) break;
       const startId = slice[0].id;
       const endId = slice[slice.length - 1].id;
-      const url = RouteOptimizer.buildGoogleMapsBatchUrl(stops, i, batchSize);
+      const url = RouteOptimizer.buildGoogleMapsRouteUrl(stops, i, batchSize);
       batches.push({ startId, endId, count: slice.length, url });
+      if (i + batchSize >= stops.length) break;
     }
 
-    container.innerHTML = batches
-      .map(
-        (b) => `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; border-bottom:1px solid var(--border);">
-        <div>
-          <strong>Trecho Paradas #${b.startId} até #${b.endId}</strong>
-          <div class="meta-text">${b.count} endereços sequenciais</div>
+    container.innerHTML = `
+      <div style="background:var(--bg-subtle); border:1px solid var(--border); border-radius:var(--radius); padding:12px; margin-bottom:10px;">
+        <div style="font-weight:800; font-size:0.95rem; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          ${renderIcon("mapPin", 16, "icon-primary")} Rota Completa Única (${stops.length} Paradas)
         </div>
-        <a href="${b.url}" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="width:auto;">
-          ${renderIcon("externalLink", 14)} Abrir Maps
+        <p class="meta-text" style="margin-bottom:10px; font-size:0.8rem;">
+          Gera um único link com todas as paradas nomeadas configuradas para navegação direta no Google Maps e Android Auto.
+        </p>
+        <a href="${fullRouteUrl}" target="_blank" rel="noopener" class="btn btn-maps" style="text-align:center;">
+          ${renderIcon("externalLink", 16)} Abrir Todas as ${stops.length} Paradas no Google Maps
         </a>
       </div>
-    `
-      )
-      .join("");
+
+      <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin:8px 0 6px 0;">
+        Trechos Contínuos (10 paradas - recomendado para navegação no carro):
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        ${batches
+          .map(
+            (b) => `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);">
+            <div>
+              <div style="font-weight:700; font-size:0.88rem;">Trecho #${b.startId} até #${b.endId}</div>
+              <div class="meta-text" style="font-size:0.78rem;">${b.count} paradas sequenciais</div>
+            </div>
+            <a href="${b.url}" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="width:auto; padding:6px 12px;">
+              ${renderIcon("navigation", 14)} Navegar
+            </a>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    `;
 
     openModal("modalMultiBatch");
   }

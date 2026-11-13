@@ -265,25 +265,39 @@ const RouteOptimizer = (function () {
     };
   }
 
-  // Google Maps multi-stop URL builder (9-10 waypoints limit per leg)
-  function buildGoogleMapsBatchUrl(stops, startIdx = 0, batchSize = 9) {
-    const slice = stops.slice(startIdx, startIdx + batchSize);
+  // Named stop label for Google Maps & Android Auto
+  function formatStopLabel(stop) {
+    const address = stop.title || (stop.number ? `${stop.street}, ${stop.number}` : stop.street);
+    const bairro = stop.bairro && stop.bairro !== "Não inf." ? stop.bairro : "";
+    let city = stop.city && stop.city !== "Não inf." ? stop.city : "";
+    if (city && !city.includes("-") && !city.includes("/")) {
+      city = `${city} - PR`;
+    }
+    const parts = [address, bairro, city].filter(Boolean);
+    return parts.join(", ");
+  }
+
+  // Google Maps multi-stop URL builder with named destinations (Android Auto ready)
+  // Generates https://www.google.com/maps/dir/Stop1/Stop2/Stop3/...
+  function buildGoogleMapsRouteUrl(stops, startIdx = 0, count = null) {
+    if (!stops || stops.length === 0) return "#";
+    const slice = count ? stops.slice(startIdx, startIdx + count) : stops.slice(startIdx);
     if (slice.length === 0) return "#";
-    const dest = slice[slice.length - 1];
-    const waypoints = slice.slice(0, -1).map((s) => `${s.lat},${s.lon}`).join("|");
-    const encodedWp = encodeURIComponent(waypoints);
-    return `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lon}${waypoints ? `&waypoints=${encodedWp}` : ""}&travelmode=driving`;
+
+    const segments = slice.map((s) => encodeURIComponent(formatStopLabel(s)));
+    return "https://www.google.com/maps/dir/" + segments.join("/") + "/";
   }
 
   function buildSingleStopGoogleMapsUrl(stop) {
-    const query = encodeURIComponent(`${stop.street}, ${stop.number}, ${stop.bairro}, ${stop.city} - PR, ${stop.zipcode}`);
+    const query = encodeURIComponent(formatStopLabel(stop));
     return `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}&travelmode=driving&query=${query}`;
   }
 
   return {
     parseCSV,
     buildOptimizedRoute,
-    buildGoogleMapsBatchUrl,
+    formatStopLabel,
+    buildGoogleMapsRouteUrl,
     buildSingleStopGoogleMapsUrl,
     haversineMeters
   };
