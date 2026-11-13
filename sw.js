@@ -1,5 +1,5 @@
 // Organiza Entregas - Service Worker Offline First
-const CACHE_NAME = "organiza-entregas-v7";
+const CACHE_NAME = "organiza-entregas-v8";
 const STATIC_ASSETS = [
   "./",
   "./index.html",

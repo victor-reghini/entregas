@@ -1187,21 +1187,25 @@ main.app-main {
 
 /* PWA Installation Guide & Banner */
 .pwa-install-banner {
-  background: linear-gradient(135deg, rgba(238, 77, 45, 0.14), rgba(238, 77, 45, 0.05));
-  border: 1.5px solid var(--primary);
+  background: linear-gradient(135deg, rgba(238, 77, 45, 0.12), rgba(238, 77, 45, 0.04));
+  border: 1.5px solid rgba(238, 77, 45, 0.35);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: 18px 16px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  text-align: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin: 18px 0 24px 0;
 }
 
 .pwa-install-banner-text {
-  font-size: 0.85rem;
-  line-height: 1.35;
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
 }
 
 .pwa-install-banner-title {
@@ -1209,8 +1213,10 @@ main.app-main {
   color: var(--text);
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.92rem;
+  justify-content: center;
+  gap: 8px;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
 }
 
 .install-modal-card {
