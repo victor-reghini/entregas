@@ -40,12 +40,12 @@
       <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
       
       <!-- Botão de Login (visível APENAS quando deslogado) -->
-      <button class="btn btn-primary header-login-btn" id="btnHeaderLogin">
+      <button class="btn btn-primary header-login-btn" id="btnHeaderLogin" onclick="app.openAuthModal()">
         Entrar
       </button>
 
       <!-- Botão do Menu da Conta (Dropdown) -->
-      <button class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
+      <button class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true" onclick="app.toggleAccountMenu(event)">
         <span id="userAvatarText" class="user-avatar">?</span>
         <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
       </button>
@@ -57,14 +57,14 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
-        <button class="dropdown-item" id="menuItemHistory">
+        <button class="dropdown-item" id="menuItemHistory" onclick="app.openHistoryModal()">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Histórico de Rotas</span>
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemTheme">
+        <button class="dropdown-item" id="menuItemTheme" onclick="app.toggleTheme()">
           <div class="dropdown-item-content">
             <span id="menuThemeIcon">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -73,7 +73,7 @@
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemSettings">
+        <button class="dropdown-item" id="menuItemSettings" onclick="app.openSettingsModal()">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             <span>Configurações</span>
@@ -82,7 +82,7 @@
 
         <div id="menuAuthActionSection" class="hidden">
           <div class="dropdown-divider"></div>
-          <button class="dropdown-item dropdown-item-danger" id="menuItemLogout">
+          <button class="dropdown-item dropdown-item-danger" id="menuItemLogout" onclick="app.logout()">
             <div class="dropdown-item-content">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
               <span>Sair da Conta</span>
@@ -117,15 +117,20 @@
         Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da numeração.
       </p>
 
-      <!-- Dropzone para XLSX ou CSV -->
-      <div class="upload-dropzone" id="uploadDropzone">
-        <input type="file" id="spreadsheetFileInput" accept=".xlsx,.xls,.csv,text/csv,text/plain" style="display:none;" />
+      <!-- Dropzone para XLSX ou CSV (Label nativo com suporte 100% confiável a toque mobile) -->
+      <label class="upload-dropzone" id="uploadDropzone" for="spreadsheetFileInput" style="cursor:pointer; display:flex;">
+        <input
+          type="file"
+          id="spreadsheetFileInput"
+          accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain"
+          style="position:absolute; opacity:0; width:1px; height:1px; pointer-events:none;"
+        />
         <svg class="icon" width="32" height="32" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="17 8 12 3 7 8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>
         <div>
           <div style="font-weight:800; font-size:0.95rem;">Selecionar Planilha (.XLSX ou .CSV)</div>
           <div class="meta-text" style="font-size:0.78rem;">Toque para escolher ou arraste o arquivo aqui</div>
         </div>
-      </div>
+      </label>
 
       <details style="font-size:0.82rem; color:var(--text-muted); cursor:pointer; margin-top:10px;">
         <summary style="font-weight:700; padding:4px 0;">Ou colar dados em formato texto / CSV</summary>

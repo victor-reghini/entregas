@@ -1282,6 +1282,55 @@
     if (clearBtn) clearBtn.classList.add("hidden");
   }
 
+  function openAuthModal() {
+    const user = FirebaseService.getUser();
+    const loggedInView = document.getElementById("authLoggedInView");
+    const loginForm = document.getElementById("authLoginForm");
+    const userEmailEl = document.getElementById("loggedUserEmail");
+
+    if (user && !user.isLocal) {
+      if (loggedInView) loggedInView.classList.remove("hidden");
+      if (loginForm) loginForm.classList.add("hidden");
+      if (userEmailEl) userEmailEl.textContent = user.email || user.displayName || "Usuário";
+    } else {
+      if (loggedInView) loggedInView.classList.add("hidden");
+      if (loginForm) loginForm.classList.remove("hidden");
+    }
+    openModal("modalAuth");
+  }
+
+  function toggleAccountMenu(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const dropdownMenu = document.getElementById("accountDropdownMenu");
+    const btnAccountMenu = document.getElementById("btnAccountMenu");
+    if (!dropdownMenu) return;
+    dropdownMenu.classList.toggle("hidden");
+    if (btnAccountMenu) {
+      btnAccountMenu.classList.toggle("active", !dropdownMenu.classList.contains("hidden"));
+    }
+  }
+
+  function openSettingsModal() {
+    const cfg = FirebaseService.getStoredConfig();
+    if (cfg) {
+      document.getElementById("cfgApiKey").value = cfg.apiKey || "";
+      document.getElementById("cfgAuthDomain").value = cfg.authDomain || "";
+      document.getElementById("cfgProjectId").value = cfg.projectId || "";
+      document.getElementById("cfgStorageBucket").value = cfg.storageBucket || "";
+      document.getElementById("cfgMessagingSenderId").value = cfg.messagingSenderId || "";
+      document.getElementById("cfgAppId").value = cfg.appId || "";
+    }
+    openModal("modalSettings");
+  }
+
+  function logout() {
+    closeDropdown();
+    FirebaseService.logout().then(() => {
+      showToast("Você saiu da conta.");
+      resetRoute();
+    });
+  }
+
   // --- BOOTSTRAP ---
   function init() {
     initTheme();
@@ -1339,54 +1388,45 @@
     const btnAccountMenu = document.getElementById("btnAccountMenu");
     const dropdownMenu = document.getElementById("accountDropdownMenu");
 
-    btnAccountMenu.addEventListener("click", (e) => {
-      e.stopPropagation();
-      dropdownMenu.classList.toggle("hidden");
-      btnAccountMenu.classList.toggle("active", !dropdownMenu.classList.contains("hidden"));
-    });
+    if (btnAccountMenu && dropdownMenu) {
+      btnAccountMenu.addEventListener("click", toggleAccountMenu);
+    }
 
     document.addEventListener("click", (e) => {
-      if (dropdownMenu && !dropdownMenu.contains(e.target) && !btnAccountMenu.contains(e.target)) {
+      if (dropdownMenu && !dropdownMenu.contains(e.target) && btnAccountMenu && !btnAccountMenu.contains(e.target)) {
         closeDropdown();
       }
     });
 
     // Menu Actions
-    document.getElementById("btnHeaderLogin").addEventListener("click", () => openModal("modalAuth"));
-    document.getElementById("menuItemHistory").addEventListener("click", openHistoryModal);
-    document.getElementById("menuItemTheme").addEventListener("click", toggleTheme);
-    document.getElementById("menuItemSettings").addEventListener("click", () => {
-      const cfg = FirebaseService.getStoredConfig();
-      if (cfg) {
-        document.getElementById("cfgApiKey").value = cfg.apiKey || "";
-        document.getElementById("cfgAuthDomain").value = cfg.authDomain || "";
-        document.getElementById("cfgProjectId").value = cfg.projectId || "";
-        document.getElementById("cfgStorageBucket").value = cfg.storageBucket || "";
-        document.getElementById("cfgMessagingSenderId").value = cfg.messagingSenderId || "";
-        document.getElementById("cfgAppId").value = cfg.appId || "";
-      }
-      openModal("modalSettings");
-    });
-    document.getElementById("menuItemLogout").addEventListener("click", () => {
-      closeDropdown();
-      FirebaseService.logout().then(() => {
-        showToast("Você saiu da conta.");
-        resetRoute();
-      });
-    });
+    const btnLogin = document.getElementById("btnHeaderLogin");
+    if (btnLogin) btnLogin.addEventListener("click", openAuthModal);
+
+    const menuHist = document.getElementById("menuItemHistory");
+    if (menuHist) menuHist.addEventListener("click", openHistoryModal);
+
+    const menuTheme = document.getElementById("menuItemTheme");
+    if (menuTheme) menuTheme.addEventListener("click", toggleTheme);
+
+    const menuSettings = document.getElementById("menuItemSettings");
+    if (menuSettings) menuSettings.addEventListener("click", openSettingsModal);
+
+    const menuLogout = document.getElementById("menuItemLogout");
+    if (menuLogout) menuLogout.addEventListener("click", logout);
 
     // File Upload (XLSX, XLS, CSV)
     const fileInput = document.getElementById("spreadsheetFileInput");
-    fileInput.addEventListener("change", (e) => {
-      if (e.target.files && e.target.files.length > 0) {
-        handleFileSelect(e.target.files[0]);
-      }
-    });
+    if (fileInput) {
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleFileSelect(e.target.files[0]);
+        }
+      });
+    }
 
-    // Dropzone Click & Drag/Drop
+    // Dropzone Drag/Drop (Desktop drag support; click handled natively by label)
     const dropzone = document.getElementById("uploadDropzone");
     if (dropzone) {
-      dropzone.addEventListener("click", () => fileInput.click());
       dropzone.addEventListener("dragover", (e) => {
         e.preventDefault();
         dropzone.classList.add("drag-over");
@@ -1404,19 +1444,33 @@
     }
 
     // Paste CSV Text
-    document.getElementById("btnParsePastedCSV").addEventListener("click", () => {
-      const txt = document.getElementById("csvPasteArea").value;
-      if (txt.trim()) handleGenerateRouteFromCSV(txt);
-    });
+    const btnParse = document.getElementById("btnParsePastedCSV");
+    if (btnParse) {
+      btnParse.addEventListener("click", () => {
+        const txt = document.getElementById("csvPasteArea").value;
+        if (txt.trim()) handleGenerateRouteFromCSV(txt);
+      });
+    }
 
     // Route Actions
-    document.getElementById("btnStartRoute").addEventListener("click", startActiveRoute);
-    document.getElementById("btnMarkArrived").addEventListener("click", markArrived);
-    document.getElementById("btnConfirmStopAndNext").addEventListener("click", confirmStopAndNext);
-    document.getElementById("btnPrevStop").addEventListener("click", prevStop);
-    document.getElementById("btnFinishEarly").addEventListener("click", () => {
-      if (confirm("Deseja encerrar a rota com o status atual?")) finishRoute();
-    });
+    const btnStart = document.getElementById("btnStartRoute");
+    if (btnStart) btnStart.addEventListener("click", startActiveRoute);
+
+    const btnArrive = document.getElementById("btnMarkArrived");
+    if (btnArrive) btnArrive.addEventListener("click", markArrived);
+
+    const btnConfirm = document.getElementById("btnConfirmStopAndNext");
+    if (btnConfirm) btnConfirm.addEventListener("click", confirmStopAndNext);
+
+    const btnPrev = document.getElementById("btnPrevStop");
+    if (btnPrev) btnPrev.addEventListener("click", prevStop);
+
+    const btnFinish = document.getElementById("btnFinishEarly");
+    if (btnFinish) {
+      btnFinish.addEventListener("click", () => {
+        if (confirm("Deseja encerrar a rota com o status atual?")) finishRoute();
+      });
+    }
 
     // Tabs
     document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -1424,16 +1478,32 @@
     });
 
     // Scanner
-    document.getElementById("scannerStartBtn").addEventListener("click", startScanner);
-    document.getElementById("scannerStopBtn").addEventListener("click", stopScanner);
-    document.getElementById("scannerSearchInput").addEventListener("input", (e) => handleManualSearch(e.target.value));
+    const btnScanStart = document.getElementById("scannerStartBtn");
+    if (btnScanStart) btnScanStart.addEventListener("click", startScanner);
+
+    const btnScanStop = document.getElementById("scannerStopBtn");
+    if (btnScanStop) btnScanStop.addEventListener("click", stopScanner);
+
+    const scanInput = document.getElementById("scannerSearchInput");
+    if (scanInput) {
+      scanInput.addEventListener("input", (e) => handleManualSearch(e.target.value));
+    }
 
     // Report
-    document.getElementById("btnExportCSV").addEventListener("click", exportCSV);
-    document.getElementById("btnCopyWhatsApp").addEventListener("click", copyWhatsAppReport);
-    document.getElementById("btnResetRoute").addEventListener("click", resetRoute);
-    document.getElementById("btnCenterMap").addEventListener("click", centerMapOnCurrent);
-    document.getElementById("btnOpenMultiBatchModal").addEventListener("click", openMultiBatchModal);
+    const btnExport = document.getElementById("btnExportCSV");
+    if (btnExport) btnExport.addEventListener("click", exportCSV);
+
+    const btnCopyWA = document.getElementById("btnCopyWhatsApp");
+    if (btnCopyWA) btnCopyWA.addEventListener("click", copyWhatsAppReport);
+
+    const btnReset = document.getElementById("btnResetRoute");
+    if (btnReset) btnReset.addEventListener("click", resetRoute);
+
+    const btnCenter = document.getElementById("btnCenterMap");
+    if (btnCenter) btnCenter.addEventListener("click", centerMapOnCurrent);
+
+    const btnMultiModal = document.getElementById("btnOpenMultiBatchModal");
+    if (btnMultiModal) btnMultiModal.addEventListener("click", openMultiBatchModal);
   }
 
   // Expose global app methods
@@ -1441,7 +1511,15 @@
     setItemStatus,
     setItemReason,
     jumpToStop,
+    openModal,
     closeModal,
+    openAuthModal,
+    toggleAccountMenu,
+    openHistoryModal,
+    openSettingsModal,
+    logout,
+    startActiveRoute,
+    toggleTheme,
     switchScreen,
     switchTab,
     initGPS,
@@ -1455,5 +1533,10 @@
     showToast
   };
 
-  document.addEventListener("DOMContentLoaded", init);
+  // Safe bootstrap (handles interactive / complete readyState on fast mobile caches)
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })();

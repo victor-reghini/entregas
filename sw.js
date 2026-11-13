@@ -1,5 +1,5 @@
 // SPX Express Route PWA Service Worker
-const CACHE_NAME = "spx-rotas-v1";
+const CACHE_NAME = "spx-rotas-v3";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -35,24 +35,19 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Only handle GET requests
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
 
-  // Bypass Firebase auth / firestore API calls from caching
-  if (
-    url.hostname.includes("firestore.googleapis.com") ||
-    url.hostname.includes("identitytoolkit.googleapis.com") ||
-    url.hostname.includes("firebase")
-  ) {
+  // Strictly only handle same-origin assets to avoid interfering with CDN scripts or external APIs
+  if (url.origin !== self.location.origin) {
     return;
   }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
-        // Return cached and update in background (Stale-While-Revalidate)
+        // Return cached and update in background
         fetch(event.request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
@@ -65,14 +60,9 @@ self.addEventListener("fetch", (event) => {
         return cached;
       }
 
-      // Not in cache, fetch from network and cache
       return fetch(event.request)
         .then((networkResponse) => {
-          if (
-            networkResponse &&
-            networkResponse.status === 200 &&
-            (url.origin === self.location.origin || url.hostname.includes("cdn") || url.hostname.includes("unpkg"))
-          ) {
+          if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
               cache.put(event.request, clone);
@@ -81,7 +71,6 @@ self.addEventListener("fetch", (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // If offline and request is HTML, return cached index
           if (event.request.headers.get("accept")?.includes("text/html")) {
             return caches.match("/index.html");
           }

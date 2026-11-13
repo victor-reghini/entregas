@@ -6,7 +6,17 @@ const path = require("path");
 
 const envVars = {};
 
-// Parse .env file if it exists locally
+// Client-safe public variables for Firebase (never include emails, passwords or secrets)
+const targetKeys = [
+  "FIREBASE_API_KEY",
+  "FIREBASE_AUTH_DOMAIN",
+  "FIREBASE_PROJECT_ID",
+  "FIREBASE_STORAGE_BUCKET",
+  "FIREBASE_MESSAGING_SENDER_ID",
+  "FIREBASE_APP_ID"
+];
+
+// Parse .env file if it exists locally (strictly only for targetKeys)
 const envPath = path.resolve(__dirname, "../.env");
 if (fs.existsSync(envPath)) {
   const content = fs.readFileSync(envPath, "utf8");
@@ -20,23 +30,14 @@ if (fs.existsSync(envPath)) {
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
-      envVars[key] = val;
+      if (targetKeys.includes(key)) {
+        envVars[key] = val;
+      }
     }
   });
 }
 
 // Override with process.env (Netlify Environment Variables take priority)
-const targetKeys = [
-  "FIREBASE_API_KEY",
-  "FIREBASE_AUTH_DOMAIN",
-  "FIREBASE_PROJECT_ID",
-  "FIREBASE_STORAGE_BUCKET",
-  "FIREBASE_MESSAGING_SENDER_ID",
-  "FIREBASE_APP_ID",
-  "TEST_USER_EMAIL",
-  "TEST_USER_PASSWORD"
-];
-
 targetKeys.forEach((key) => {
   if (process.env[key]) {
     envVars[key] = process.env[key];
