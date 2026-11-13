@@ -1043,3 +1043,138 @@ main.app-main {
     height: 400px;
   }
 }
+
+/* Leaflet Map Enhanced Pins */
+.map-stop-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 0.76rem;
+  color: #ffffff;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+
+.map-stop-pin:hover {
+  transform: scale(1.15);
+}
+
+.route-pin-pending {
+  background: #475569;
+}
+
+.route-pin-delivered {
+  background: #10b981;
+}
+
+.route-pin-failed {
+  background: #ef4444;
+}
+
+.route-pin-current {
+  background: #ee4d2d;
+  width: 34px;
+  height: 34px;
+  font-size: 0.88rem;
+  border: 2.5px solid #ffffff;
+  z-index: 999 !important;
+}
+
+.map-pin-pulse {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  border-radius: 50%;
+  background: rgba(238, 77, 45, 0.4);
+  animation: mapPinPulse 1.8s infinite ease-out;
+  pointer-events: none;
+}
+
+@keyframes mapPinPulse {
+  0% { transform: scale(0.85); opacity: 0.9; }
+  100% { transform: scale(1.85); opacity: 0; }
+}
+
+/* Animated Delivery Vehicle */
+.map-vehicle-icon-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+
+.map-vehicle-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  animation: vehicleGlow 2s infinite ease-in-out;
+}
+
+@keyframes vehicleGlow {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 10px rgba(37, 99, 235, 0.6); }
+  50% { transform: scale(1.12); box-shadow: 0 0 18px rgba(59, 130, 246, 0.9); }
+}
+
+/* Map Popup Styling */
+.map-stop-popup {
+  padding: 4px;
+  color: #0f172a;
+}
+
+.map-stop-badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #ee4d2d;
+  margin-bottom: 2px;
+}
+
+.map-stop-title {
+  font-weight: 800;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.map-stop-desc {
+  font-size: 0.76rem;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+/* Scan Modal Card */
+.scan-modal-card {
+  max-width: 420px;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--primary);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+}
+
+.header-install-btn {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.header-install-btn:hover {
+  background: var(--primary);
+  color: #ffffff;
+}
+

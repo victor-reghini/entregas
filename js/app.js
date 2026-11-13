@@ -28,11 +28,10 @@
     autoArrivedStopId: null,
     map: null,
     markers: {
-      active: null,
-      next: null,
-      user: null,
       routeLine: null,
-      allStops: []
+      routeBorderLine: null,
+      allStops: [],
+      animatedVehicle: null
     }
   };
 
@@ -224,6 +223,13 @@
   }
 
   function switchTab(tabName) {
+    if (state.activeTab === "map" && tabName !== "map") {
+      stopRouteAnimation();
+    }
+    if (state.activeTab === "organize" && tabName !== "organize") {
+      stopScanner();
+    }
+
     state.activeTab = tabName;
     document.querySelectorAll(".tab-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.tab === tabName);
@@ -253,7 +259,10 @@
       tabMap.classList.remove("hidden");
       initLeafletMap();
       setTimeout(() => {
-        if (state.map) state.map.invalidateSize();
+        if (state.map) {
+          state.map.invalidateSize();
+          updateMapMarkers();
+        }
       }, 150);
     }
   }
@@ -472,16 +481,6 @@
     });
   }
 
-  function sendWhatsAppMessage(tn) {
-    if (!state.route) return;
-    const stop = state.route.stops[state.activeStopIdx];
-    const addr = stop ? RouteOptimizer.formatStopLabel(stop) : "seu endereço";
-    const code = tn || "";
-    const msg = `Olá! Sou entregador da Shopee (SPX Express). Estou no endereço ${addr} para realizar a entrega do pacote ${code}. Por favor, me atenda no portão. Obrigado!`;
-    const encoded = encodeURIComponent(msg);
-    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
-  }
-
   const SPX_FAIL_REASONS = [
     "Cliente Ausente",
     "Endereço Incorreto",
@@ -507,14 +506,9 @@
         <div class="package-item">
           <div class="package-item-header">
             <span class="tn-code">#${idx + 1} • ${it.tn}</span>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button type="button" class="btn btn-outline btn-sm" style="width:auto; padding:3px 7px; font-size:0.72rem;" onclick="app.sendWhatsAppMessage('${it.tn}')" title="Avisar cliente no WhatsApp">
-                ${renderIcon("phone", 12)} WhatsApp
-              </button>
-              <span class="badge ${badgeClass}">
-                ${badgeLabel}
-              </span>
-            </div>
+            <span class="badge ${badgeClass}">
+              ${badgeLabel}
+            </span>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
           
@@ -752,128 +746,340 @@
     }
   }
 
+  function showPackageModal(result) {
+    const stopNumEl = document.getElementById("modalScanStopNumber");
+    const orderEl = document.getElementById("modalScanPackageOrder");
+    const addrEl = document.getElementById("modalScanAddress");
+    const compEl = document.getElementById("modalScanComplement");
+    const tnEl = document.getElementById("modalScanTnCode");
+
+    if (stopNumEl) stopNumEl.textContent = `PARADA #${result.stop.id}`;
+    if (orderEl) orderEl.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
+    if (addrEl) addrEl.textContent = result.stop.title;
+    if (compEl) compEl.textContent = result.item.complement ? `Complemento: ${result.item.complement}` : "Sem complemento";
+    if (tnEl) tnEl.textContent = result.item.tn;
+
+    // Atualiza também o cartão inferior para conferência rápida
+    const resultCard = document.getElementById("scanResultDisplay");
+    if (resultCard) {
+      resultCard.classList.remove("hidden");
+      const cardStop = document.getElementById("scanStopNumber");
+      const cardOrder = document.getElementById("scanPackageOrder");
+      const cardAddr = document.getElementById("scanAddress");
+      const cardComp = document.getElementById("scanComplement");
+      const cardTn = document.getElementById("scanTnCode");
+      if (cardStop) cardStop.textContent = `PARADA #${result.stop.id}`;
+      if (cardOrder) cardOrder.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
+      if (cardAddr) cardAddr.textContent = result.stop.title;
+      if (cardComp) cardComp.textContent = result.item.complement || "";
+      if (cardTn) cardTn.textContent = result.item.tn;
+    }
+
+    renderOrganizeView();
+    openModal("modalScanPackage");
+  }
+
+  function closeScanModal() {
+    closeModal("modalScanPackage");
+    PackageScanner.resumeScanning();
+  }
+
   function startScanner() {
     if (!state.route) {
       showToast("Carregue uma rota primeiro.");
       return;
     }
-    document.getElementById("scannerStartBtn").classList.add("hidden");
-    document.getElementById("scannerStopBtn").classList.remove("hidden");
+    const startBtn = document.getElementById("scannerStartBtn");
+    const stopBtn = document.getElementById("scannerStopBtn");
+    if (startBtn) startBtn.classList.add("hidden");
+    if (stopBtn) stopBtn.classList.remove("hidden");
 
     PackageScanner.startCamera("qrReaderElement", state.route.stops, (result, found) => {
-      const resultCard = document.getElementById("scanResultDisplay");
-      resultCard.classList.remove("hidden");
-
       if (found) {
-        document.getElementById("scanStopNumber").textContent = `PARADA #${result.stop.id}`;
-        document.getElementById("scanPackageOrder").textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
-        document.getElementById("scanAddress").textContent = result.stop.title;
-        document.getElementById("scanComplement").textContent = result.item.complement;
-        document.getElementById("scanTnCode").textContent = result.item.tn;
-        renderOrganizeView();
+        showPackageModal(result);
       } else {
-        document.getElementById("scanStopNumber").textContent = "CÓDIGO NÃO LOCALIZADO";
-        document.getElementById("scanPackageOrder").textContent = result.rawCode || "Desconhecido";
-        document.getElementById("scanAddress").textContent = "Este pacote não pertence à rota atual.";
-        document.getElementById("scanComplement").textContent = "";
-        document.getElementById("scanTnCode").textContent = "";
+        const resultCard = document.getElementById("scanResultDisplay");
+        if (resultCard) {
+          resultCard.classList.remove("hidden");
+          document.getElementById("scanStopNumber").textContent = "CÓDIGO NÃO LOCALIZADO";
+          document.getElementById("scanPackageOrder").textContent = result.rawCode || "Desconhecido";
+          document.getElementById("scanAddress").textContent = "Este pacote não pertence à rota atual.";
+          document.getElementById("scanComplement").textContent = "";
+          document.getElementById("scanTnCode").textContent = "";
+        }
+        showToast("Código não encontrado nesta rota.");
       }
     });
   }
 
   function stopScanner() {
     PackageScanner.stopCamera();
-    document.getElementById("scannerStartBtn").classList.remove("hidden");
-    document.getElementById("scannerStopBtn").classList.add("hidden");
+    closeModal("modalScanPackage");
+    const startBtn = document.getElementById("scannerStartBtn");
+    const stopBtn = document.getElementById("scannerStopBtn");
+    if (startBtn) startBtn.classList.remove("hidden");
+    if (stopBtn) stopBtn.classList.add("hidden");
   }
 
   function handleManualSearch(query) {
     if (!state.route || !query.trim()) return;
     const match = PackageScanner.manualSearch(query, state.route.stops);
-    const resultCard = document.getElementById("scanResultDisplay");
-    resultCard.classList.remove("hidden");
-
     if (match) {
       PackageScanner.playBeep(true);
-      document.getElementById("scanStopNumber").textContent = `PARADA #${match.stop.id}`;
-      document.getElementById("scanPackageOrder").textContent = `Pacote #${match.item.seq} de ${state.route.totalPackages}`;
-      document.getElementById("scanAddress").textContent = match.stop.title;
-      document.getElementById("scanComplement").textContent = match.item.complement;
-      document.getElementById("scanTnCode").textContent = match.item.tn;
+      showPackageModal(match);
     } else {
       PackageScanner.playBeep(false);
-      document.getElementById("scanStopNumber").textContent = "NÃO ENCONTRADO";
-      document.getElementById("scanPackageOrder").textContent = query;
-      document.getElementById("scanAddress").textContent = "Verifique o código digitado.";
-      document.getElementById("scanComplement").textContent = "";
-      document.getElementById("scanTnCode").textContent = "";
+      const resultCard = document.getElementById("scanResultDisplay");
+      if (resultCard) {
+        resultCard.classList.remove("hidden");
+        document.getElementById("scanStopNumber").textContent = "NÃO ENCONTRADO";
+        document.getElementById("scanPackageOrder").textContent = query;
+        document.getElementById("scanAddress").textContent = "Verifique o código digitado.";
+        document.getElementById("scanComplement").textContent = "";
+        document.getElementById("scanTnCode").textContent = "";
+      }
+      showToast("Pacote não encontrado nesta rota.");
     }
   }
 
-  // --- LEAFLET MAP ---
+  // --- LEAFLET MAP COM TODAS AS PARADAS E ANIMAÇÃO DE PERCURSO ---
+  let mapAnim = {
+    frameId: null,
+    totalDistance: 0,
+    segments: [],
+    startTime: null,
+    durationMs: 14000
+  };
+
   function initLeafletMap() {
     if (!state.route || state.route.stops.length === 0) return;
     if (state.map) {
       updateMapMarkers();
+      startRouteAnimation();
       return;
     }
 
     const first = state.route.stops[0];
-    state.map = L.map("map").setView([first.lat, first.lon], 16);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(state.map);
+    state.map = L.map("map", {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([first.lat, first.lon], 15);
 
-    const latlngs = state.route.stops.map((s) => [s.lat, s.lon]);
-    state.markers.routeLine = L.polyline(latlngs, {
-      color: "#ee4d2d",
-      weight: 3.5,
-      opacity: 0.7,
-      dashArray: "6, 6"
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19
     }).addTo(state.map);
 
     updateMapMarkers();
+    startRouteAnimation();
   }
 
   function updateMapMarkers() {
-    if (!state.map || !state.route) return;
-    const stop = state.route.stops[state.activeStopIdx];
+    if (!state.map || !state.route || state.route.stops.length === 0) return;
 
-    if (state.markers.active) state.map.removeLayer(state.markers.active);
-    if (state.markers.next) state.map.removeLayer(state.markers.next);
+    const stops = state.route.stops;
+    const latlngs = stops.map((s) => [s.lat, s.lon]);
 
-    state.markers.active = L.circleMarker([stop.lat, stop.lon], {
-      radius: 11,
-      color: "#ffffff",
-      weight: 2.5,
-      fillColor: "#10b981",
-      fillOpacity: 1
-    })
-      .addTo(state.map)
-      .bindPopup(`<strong>#${stop.id} (Atual)</strong><br>${stop.title}`)
-      .openPopup();
+    // Linha de Traçado da Rota (Borda escura de contraste + linha principal laranja destacada)
+    if (state.markers.routeBorderLine) state.map.removeLayer(state.markers.routeBorderLine);
+    if (state.markers.routeLine) state.map.removeLayer(state.markers.routeLine);
 
-    if (state.activeStopIdx + 1 < state.route.stops.length) {
-      const nxt = state.route.stops[state.activeStopIdx + 1];
-      state.markers.next = L.circleMarker([nxt.lat, nxt.lon], {
-        radius: 8,
-        color: "#ffffff",
-        weight: 1.5,
-        fillColor: "#f59e0b",
-        fillOpacity: 0.9
+    state.markers.routeBorderLine = L.polyline(latlngs, {
+      color: "#0f172a",
+      weight: 6,
+      opacity: 0.65,
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(state.map);
+
+    state.markers.routeLine = L.polyline(latlngs, {
+      color: "#ee4d2d",
+      weight: 4,
+      opacity: 0.9,
+      dashArray: "8, 6",
+      lineCap: "round",
+      lineJoin: "round"
+    }).addTo(state.map);
+
+    // Remove marcadores anteriores
+    if (state.markers.allStops && state.markers.allStops.length > 0) {
+      state.markers.allStops.forEach((m) => state.map.removeLayer(m));
+    }
+    state.markers.allStops = [];
+
+    let currentMarker = null;
+
+    // Plota TODAS as paradas da rota no mapa
+    stops.forEach((stop, idx) => {
+      const isCurrent = idx === state.activeStopIdx;
+      const isDelivered = stop.items.every(
+        (it) => state.results[it.tn] && state.results[it.tn].status === "delivered"
+      );
+      const isFailed = stop.items.every(
+        (it) => state.results[it.tn] && state.results[it.tn].status === "failed"
+      );
+
+      let pinClass = "route-pin-pending";
+      let statusBadge = `PARADA #${stop.id}`;
+      let badgeStyle = "color:#64748b;";
+
+      if (isCurrent) {
+        pinClass = "route-pin-current";
+        statusBadge = "📍 PARADA ATUAL";
+        badgeStyle = "color:#ee4d2d;";
+      } else if (isDelivered) {
+        pinClass = "route-pin-delivered";
+        statusBadge = "✓ ENTREGUE";
+        badgeStyle = "color:#10b981;";
+      } else if (isFailed) {
+        pinClass = "route-pin-failed";
+        statusBadge = "✕ NÃO ENTREGUE";
+        badgeStyle = "color:#ef4444;";
+      }
+
+      const iconHtml = isCurrent
+        ? `<div class="map-stop-pin ${pinClass}"><div class="map-pin-pulse"></div><span class="map-pin-num">${stop.id}</span></div>`
+        : `<div class="map-stop-pin ${pinClass}"><span class="map-pin-num">${stop.id}</span></div>`;
+
+      const customIcon = L.divIcon({
+        className: "custom-stop-marker-wrap",
+        html: iconHtml,
+        iconSize: isCurrent ? [34, 34] : [28, 28],
+        iconAnchor: isCurrent ? [17, 17] : [14, 14],
+        popupAnchor: [0, isCurrent ? -18 : -14]
+      });
+
+      const popupHtml = `
+        <div class="map-stop-popup">
+          <div class="map-stop-badge" style="${badgeStyle}">${statusBadge}</div>
+          <div class="map-stop-title">${stop.title}</div>
+          <div class="map-stop-desc">${stop.items.length} pacote(s) • Seq: ${stop.items.map((it) => "#" + it.seq).join(", ")}</div>
+          ${!isCurrent ? `<button type="button" class="btn btn-primary btn-sm" style="margin-top:8px; width:100%; font-size:0.75rem; padding:4px;" onclick="app.jumpToStop(${idx})">Ir para esta Parada</button>` : ""}
+        </div>
+      `;
+
+      const marker = L.marker([stop.lat, stop.lon], {
+        icon: customIcon,
+        zIndexOffset: isCurrent ? 1000 : 100
       })
         .addTo(state.map)
-        .bindPopup(`<strong>#${nxt.id} (Próxima)</strong><br>${nxt.title}`);
+        .bindPopup(popupHtml);
+
+      state.markers.allStops.push(marker);
+
+      if (isCurrent) {
+        currentMarker = marker;
+      }
+    });
+
+    // Centraliza e destaca a parada atual
+    const currentStop = stops[state.activeStopIdx];
+    if (currentStop) {
+      state.map.setView([currentStop.lat, currentStop.lon], 16);
+      if (currentMarker) {
+        currentMarker.openPopup();
+      }
     }
 
-    state.map.setView([stop.lat, stop.lon], 16);
+    // Prepara segmentos para animação de percurso
+    prepareRouteSegments(latlngs);
+  }
+
+  function prepareRouteSegments(latlngs) {
+    mapAnim.segments = [];
+    mapAnim.totalDistance = 0;
+    if (latlngs.length < 2) return;
+
+    for (let i = 0; i < latlngs.length - 1; i++) {
+      const p1 = latlngs[i];
+      const p2 = latlngs[i + 1];
+      const dist = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+      mapAnim.segments.push({
+        p1,
+        p2,
+        dist,
+        startDist: mapAnim.totalDistance
+      });
+      mapAnim.totalDistance += dist;
+    }
+  }
+
+  function startRouteAnimation() {
+    stopRouteAnimation();
+    if (!state.map || !state.route || state.route.stops.length < 2 || mapAnim.totalDistance <= 0) return;
+
+    const latlngs = state.route.stops.map((s) => [s.lat, s.lon]);
+
+    if (state.markers.animatedVehicle) {
+      state.map.removeLayer(state.markers.animatedVehicle);
+    }
+
+    const vehicleIcon = L.divIcon({
+      className: "map-vehicle-icon-wrap",
+      html: `
+        <div class="map-vehicle-dot">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#ffffff">
+            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10l-1.5-3H9c-1.1 0-2 .9-2 2v2H3c-.6 0-1 .4-1 1v5c0 .6.4 1 1 1h2c0 1.7 1.3 3 3 3s3-1.3 3-3h6c0 1.7 1.3 3 3 3s3-1.3 3-3zM7 18.5c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5zm11 0c-.8 0-1.5-.7-1.5-1.5s.7-1.5 1.5-1.5 1.5.7 1.5 1.5-.7 1.5-1.5 1.5z"/>
+          </svg>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+
+    state.markers.animatedVehicle = L.marker([latlngs[0][0], latlngs[0][1]], {
+      icon: vehicleIcon,
+      zIndexOffset: 1200
+    }).addTo(state.map);
+
+    mapAnim.startTime = performance.now();
+
+    function step(now) {
+      if (!state.map || !state.markers.animatedVehicle) return;
+
+      const elapsed = (now - mapAnim.startTime) % mapAnim.durationMs;
+      const progress = elapsed / mapAnim.durationMs;
+      const targetDist = progress * mapAnim.totalDistance;
+
+      let curLat = latlngs[0][0];
+      let curLon = latlngs[0][1];
+
+      for (let i = 0; i < mapAnim.segments.length; i++) {
+        const seg = mapAnim.segments[i];
+        if (targetDist >= seg.startDist && targetDist <= seg.startDist + seg.dist) {
+          const frac = seg.dist > 0 ? (targetDist - seg.startDist) / seg.dist : 0;
+          curLat = seg.p1[0] + frac * (seg.p2[0] - seg.p1[0]);
+          curLon = seg.p1[1] + frac * (seg.p2[1] - seg.p1[1]);
+          break;
+        }
+      }
+
+      state.markers.animatedVehicle.setLatLng([curLat, curLon]);
+      mapAnim.frameId = requestAnimationFrame(step);
+    }
+
+    mapAnim.frameId = requestAnimationFrame(step);
+  }
+
+  function stopRouteAnimation() {
+    if (mapAnim.frameId) {
+      cancelAnimationFrame(mapAnim.frameId);
+      mapAnim.frameId = null;
+    }
   }
 
   function centerMapOnCurrent() {
     if (!state.map || !state.route) return;
     const stop = state.route.stops[state.activeStopIdx];
-    state.map.setView([stop.lat, stop.lon], 17);
+    if (stop) {
+      state.map.setView([stop.lat, stop.lon], 17);
+      const marker = state.markers.allStops[state.activeStopIdx];
+      if (marker) marker.openPopup();
+    }
+  }
+
+  function fitAllStopsMap() {
+    if (!state.map || !state.markers.routeLine) return;
+    state.map.fitBounds(state.markers.routeLine.getBounds(), { padding: [32, 32] });
   }
 
   // --- GPS & GEOFENCING ---
@@ -1013,14 +1219,14 @@
     showToast("Relatório CSV baixado!");
   }
 
-  function copyWhatsAppReport() {
+  function copyRouteSummary() {
     const summary = getRouteSummary();
     const fails = summary.details
       .filter((d) => d.status === "failed")
       .map((d) => `• ${d.tn} (${d.address}): ${d.reason || "Não visitado"}`);
 
     const text = [
-      `📦 *RELATÓRIO DE ENTREGAS SPX EXPRESS*`,
+      `📦 *ORGANIZA ENTREGAS — RELATÓRIO DO DIA*`,
       `📅 Data: ${new Date().toLocaleDateString("pt-BR")}`,
       `✅ Pacotes Entregues: ${summary.deliveredCount} / ${summary.totalPackages} (${summary.successRate}%)`,
       `❌ Não Entregues: ${summary.failedCount}`,
@@ -1028,7 +1234,9 @@
     ].join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
-      showToast("Resumo para WhatsApp copiado!");
+      showToast("Resumo da rota copiado!");
+    }).catch(() => {
+      showToast("Não foi possível copiar.");
     });
   }
 
@@ -1531,8 +1739,8 @@
     const btnExport = document.getElementById("btnExportCSV");
     if (btnExport) btnExport.addEventListener("click", exportCSV);
 
-    const btnCopyWA = document.getElementById("btnCopyWhatsApp");
-    if (btnCopyWA) btnCopyWA.addEventListener("click", copyWhatsAppReport);
+    const btnCopySum = document.getElementById("btnCopySummary");
+    if (btnCopySum) btnCopySum.addEventListener("click", copyRouteSummary);
 
     const btnReset = document.getElementById("btnResetRoute");
     if (btnReset) btnReset.addEventListener("click", resetRoute);
@@ -1540,8 +1748,43 @@
     const btnCenter = document.getElementById("btnCenterMap");
     if (btnCenter) btnCenter.addEventListener("click", centerMapOnCurrent);
 
+    const btnFitAll = document.getElementById("btnFitAllMap");
+    if (btnFitAll) btnFitAll.addEventListener("click", fitAllStopsMap);
+
     const btnMultiModal = document.getElementById("btnOpenMultiBatchModal");
     if (btnMultiModal) btnMultiModal.addEventListener("click", openMultiBatchModal);
+  }
+
+  // --- PWA INSTALLATION PROMPT ---
+  let deferredInstallPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById("btnInstallPwa");
+    if (btn) btn.classList.remove("hidden");
+  });
+
+  window.addEventListener("appinstalled", () => {
+    showToast("Organiza Entregas instalado com sucesso!");
+    const btn = document.getElementById("btnInstallPwa");
+    if (btn) btn.classList.add("hidden");
+    deferredInstallPrompt = null;
+  });
+
+  function installPwa() {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then((choice) => {
+        if (choice.outcome === "accepted") {
+          showToast("Instalação iniciada!");
+        }
+        deferredInstallPrompt = null;
+        const btn = document.getElementById("btnInstallPwa");
+        if (btn) btn.classList.add("hidden");
+      });
+    } else {
+      showToast("Toque no menu do navegador e selecione 'Adicionar à tela inicial'");
+    }
   }
 
   // Expose global app methods
@@ -1551,6 +1794,8 @@
     jumpToStop,
     openModal,
     closeModal,
+    closeScanModal,
+    showPackageModal,
     openAuthModal,
     toggleAccountMenu,
     openHistoryModal,
@@ -1565,7 +1810,10 @@
     nextStop,
     prevStop,
     copyCurrentAddress,
-    sendWhatsAppMessage,
+    copyRouteSummary,
+    centerMapOnCurrent,
+    fitAllStopsMap,
+    installPwa,
     jumpFromSearch,
     openMultiBatchModal,
     showToast

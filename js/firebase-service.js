@@ -7,12 +7,12 @@ const FirebaseService = (function () {
   // You can paste your Firebase Config here directly, or enter it in the app Settings UI!
   // Default fallback configuration (Populated from window.__ENV__ or localStorage)
   const DEFAULT_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
+    apiKey: "AIzaSyC1_tZpYagAcYyu6oKHYErZo9zr2gCcjy4",
+    authDomain: "entregas-d2f39.firebaseapp.com",
+    projectId: "entregas-d2f39",
+    storageBucket: "entregas-d2f39.firebasestorage.app",
+    messagingSenderId: "274786989759",
+    appId: "1:274786989759:web:5c591dba9abd8c0ead380a"
   };
 
   let isInitialized = false;
@@ -99,13 +99,13 @@ const FirebaseService = (function () {
       } else {
         currentUser = {
           uid: "local-driver",
-          displayName: "Entregador SPX",
-          email: "entregador@spx.local",
+          displayName: "Entregador",
+          email: "entregador@local.app",
           isLocal: true
         };
       }
     } catch (e) {
-      currentUser = { uid: "local-driver", displayName: "Entregador SPX", isLocal: true };
+      currentUser = { uid: "local-driver", displayName: "Entregador", isLocal: true };
     }
     notifyAuthCallbacks(currentUser);
   }
@@ -208,7 +208,7 @@ const FirebaseService = (function () {
       deliveredCount: routeSummary.deliveredCount || 0,
       failedCount: routeSummary.failedCount || 0,
       successRate: Math.round(((routeSummary.deliveredCount || 0) / (routeSummary.totalPackages || 1)) * 100),
-      region: routeSummary.region || "Rota SPX",
+      region: routeSummary.region || "Organiza Entregas",
       details: routeSummary.details || []
     };
 

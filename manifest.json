@@ -1,19 +1,43 @@
 {
-  "name": "SPX Express — Rotas Otimizadas",
-  "short_name": "SPX Rotas",
-  "description": "Roteirizador de entregas Shopee Express rua por rua sem zigue-zague",
-  "start_url": "/",
+  "name": "Organiza Entregas",
+  "short_name": "Organiza Entregas",
+  "description": "Organizador e roteirizador de entregas otimizado com suporte offline",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#121212",
   "theme_color": "#ee4d2d",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23ee4d2d'/><text x='50' y='65' font-size='42' font-family='sans-serif' font-weight='900' fill='white' text-anchor='middle'>SPX</text></svg>",
-      "sizes": "192x192 512x512",
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }
-

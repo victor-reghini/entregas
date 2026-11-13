@@ -1,8 +1,9 @@
-// SPX Express Route PWA Service Worker
-const CACHE_NAME = "spx-rotas-v5";
+// Organiza Entregas - Service Worker Offline First
+const CACHE_NAME = "organiza-entregas-v1";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
+  "./manifest.json",
   "./css/style.css",
   "./js/env.js",
   "./js/icons.js",
@@ -10,7 +11,22 @@ const STATIC_ASSETS = [
   "./js/scanner.js",
   "./js/firebase-service.js",
   "./js/app.js",
-  "./manifest.json"
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-maskable-192.png",
+  "./icons/icon-maskable-512.png",
+  "./icons/icon.svg",
+  "./icons/favicon.ico",
+  "./vendor/leaflet.css",
+  "./vendor/leaflet.js",
+  "./vendor/images/marker-icon.png",
+  "./vendor/images/marker-icon-2x.png",
+  "./vendor/images/marker-shadow.png",
+  "./vendor/xlsx.full.min.js",
+  "./vendor/html5-qrcode.min.js",
+  "./vendor/firebase-app-compat.js",
+  "./vendor/firebase-auth-compat.js",
+  "./vendor/firebase-firestore-compat.js"
 ];
 
 self.addEventListener("install", (event) => {
@@ -56,17 +72,31 @@ self.addEventListener("fetch", (event) => {
           }
           return networkResponse;
         })
-        .catch(() => {
-          return caches.match("./index.html") || caches.match("/");
+        .catch(async () => {
+          const cached = await caches.match("./index.html") || await caches.match("/");
+          return cached || Response.error();
         })
     );
     return;
   }
 
-  // Stale-while-revalidate for static assets
+  // Stale-while-revalidate / Cache-First for static assets
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
+      if (cached) {
+        // Refresh cache in background if online
+        fetch(event.request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const clone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            }
+          })
+          .catch(() => {});
+        return cached;
+      }
+
+      return fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
@@ -75,8 +105,6 @@ self.addEventListener("fetch", (event) => {
           return networkResponse;
         })
         .catch(() => cached);
-
-      return cached || fetchPromise;
     })
   );
 });
