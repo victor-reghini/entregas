@@ -293,12 +293,21 @@ const RouteOptimizer = (function () {
     return `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}&travelmode=driving&query=${query}`;
   }
 
+  function buildWazeUrl(stop) {
+    if (stop.lat && stop.lon && stop.lat !== 0 && stop.lon !== 0) {
+      return `https://waze.com/ul?ll=${stop.lat},${stop.lon}&navigate=yes`;
+    }
+    const query = encodeURIComponent(formatStopLabel(stop));
+    return `https://waze.com/ul?q=${query}&navigate=yes`;
+  }
+
   return {
     parseCSV,
     buildOptimizedRoute,
     formatStopLabel,
     buildGoogleMapsRouteUrl,
     buildSingleStopGoogleMapsUrl,
+    buildWazeUrl,
     haversineMeters
   };
 })();

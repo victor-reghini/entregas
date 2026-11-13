@@ -359,6 +359,12 @@
     const btnNav = document.getElementById("btnNavigateSingle");
     btnNav.href = RouteOptimizer.buildSingleStopGoogleMapsUrl(stop);
 
+    // Waze Navigation Link
+    const btnWaze = document.getElementById("btnNavigateWaze");
+    if (btnWaze) {
+      btnWaze.href = RouteOptimizer.buildWazeUrl(stop);
+    }
+
     // Multi-stop Batch Button (Android Auto compatible)
     const btnMulti = document.getElementById("btnNavigateMultiBatch");
     const nextStopsBatchCount = Math.min(10, state.route.stops.length - state.activeStopIdx);
@@ -405,6 +411,85 @@
     }
   }
 
+  // Audio Synthesizer & Haptics
+  const audioCtx = (function () {
+    let ctx = null;
+    return () => {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume();
+      return ctx;
+    };
+  })();
+
+  function playSuccessChime() {
+    try {
+      const ctx = audioCtx();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.12); // G5
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.25);
+      if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+    } catch (_) {}
+  }
+
+  function playWarningChime() {
+    try {
+      const ctx = audioCtx();
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(440, now); // A4
+      osc.frequency.linearRampToValueAtTime(330, now + 0.15); // E4
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.25);
+      if (navigator.vibrate) navigator.vibrate(60);
+    } catch (_) {}
+  }
+
+  function copyCurrentAddress() {
+    if (!state.route || state.route.stops.length === 0) return;
+    const stop = state.route.stops[state.activeStopIdx];
+    if (!stop) return;
+    const text = RouteOptimizer.formatStopLabel(stop);
+    navigator.clipboard.writeText(text).then(() => {
+      showToast("Endereço copiado para a área de transferência!");
+      if (navigator.vibrate) navigator.vibrate(25);
+    }).catch(() => {
+      showToast("Não foi possível copiar o endereço.");
+    });
+  }
+
+  function sendWhatsAppMessage(tn) {
+    if (!state.route) return;
+    const stop = state.route.stops[state.activeStopIdx];
+    const addr = stop ? RouteOptimizer.formatStopLabel(stop) : "seu endereço";
+    const code = tn || "";
+    const msg = `Olá! Sou entregador da Shopee (SPX Express). Estou no endereço ${addr} para realizar a entrega do pacote ${code}. Por favor, me atenda no portão. Obrigado!`;
+    const encoded = encodeURIComponent(msg);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank");
+  }
+
+  const SPX_FAIL_REASONS = [
+    "Cliente Ausente",
+    "Endereço Incorreto",
+    "Destinatário Mudou",
+    "Recusado",
+    "Sem Acesso"
+  ];
+
   function renderPackageChecklist(stop) {
     const container = document.getElementById("packageItemsContainer");
     container.innerHTML = stop.items
@@ -415,10 +500,15 @@
         return `
         <div class="package-item">
           <div class="package-item-header">
-            <span class="tn-code">${idx + 1}. ${it.tn}</span>
-            <span class="badge ${isDelivered ? "badge-success" : "badge-warning"}">
-              ${isDelivered ? "Pronto p/ entrega" : "Pendente"}
-            </span>
+            <span class="tn-code">#${idx + 1} • ${it.tn}</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button type="button" class="btn btn-outline btn-sm" style="width:auto; padding:3px 7px; font-size:0.72rem;" onclick="app.sendWhatsAppMessage('${it.tn}')" title="Avisar cliente no WhatsApp">
+                ${renderIcon("phone", 12)} WhatsApp
+              </button>
+              <span class="badge ${isDelivered ? "badge-success" : "badge-warning"}">
+                ${isDelivered ? "Entregue" : "Pendente"}
+              </span>
+            </div>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
           <div class="status-toggles">
@@ -429,13 +519,27 @@
               ${renderIcon("x", 16)} Não Entregue
             </button>
           </div>
-          <input
-            type="text"
-            class="reason-input ${!isDelivered ? "" : "hidden"}"
-            placeholder="Motivo (ex: Destinatário ausente, endereço fechado...)"
-            value="${(res.reason || "").replace(/"/g, "&quot;")}"
-            oninput="app.setItemReason('${it.tn}', this.value)"
-          />
+
+          <div class="${!isDelivered ? "" : "hidden"}" style="margin-top:8px;">
+            <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:4px;">Motivo do Insucesso:</div>
+            <div class="reason-tags-grid">
+              ${SPX_FAIL_REASONS.map(
+                (reason) => `
+                <button type="button" class="reason-tag-pill ${res.reason === reason ? "active" : ""}" onclick="app.setItemReason('${it.tn}', '${reason}')">
+                  ${reason}
+                </button>
+              `
+              ).join("")}
+            </div>
+            <input
+              type="text"
+              class="reason-input"
+              style="margin-top:6px;"
+              placeholder="Ou digite outro motivo..."
+              value="${(res.reason || "").replace(/"/g, "&quot;")}"
+              oninput="app.setItemReason('${it.tn}', this.value)"
+            />
+          </div>
         </div>
       `;
       })
@@ -466,9 +570,14 @@
     const prev = state.results[tn] || { reason: "" };
     state.results[tn] = {
       status,
-      reason: status === "delivered" ? "" : prev.reason,
+      reason: status === "delivered" ? "" : (prev.reason || "Cliente Ausente"),
       time: new Date().toLocaleTimeString("pt-BR")
     };
+    if (status === "delivered") {
+      playSuccessChime();
+    } else {
+      playWarningChime();
+    }
     saveState();
     const stop = state.route.stops[state.activeStopIdx];
     renderPackageChecklist(stop);
@@ -481,6 +590,8 @@
     }
     state.results[tn].reason = reason;
     saveState();
+    const stop = state.route.stops[state.activeStopIdx];
+    renderPackageChecklist(stop);
   }
 
   function confirmStopAndNext() {
@@ -490,6 +601,8 @@
         state.results[it.tn] = { status: "delivered", reason: "", time: new Date().toLocaleTimeString("pt-BR") };
       }
     });
+
+    playSuccessChime();
 
     if (state.activeStopIdx < state.route.stops.length - 1) {
       state.activeStopIdx += 1;
@@ -1000,9 +1113,188 @@
     openModal("modalMultiBatch");
   }
 
+  function nextStop() {
+    if (!state.route) return;
+    if (state.activeStopIdx < state.route.stops.length - 1) {
+      state.activeStopIdx += 1;
+      state.arrivedCurrent = false;
+      if (navigator.vibrate) navigator.vibrate(25);
+      saveState();
+      renderCurrentStopView();
+      if (state.activeTab === "all") {
+        renderFullStopsList();
+        setTimeout(scrollActiveStopIntoView, 100);
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function updateOnlineStatus() {
+    const banner = document.getElementById("offlineBanner");
+    if (!banner) return;
+    if (navigator.onLine) {
+      banner.classList.add("hidden");
+    } else {
+      banner.classList.remove("hidden");
+    }
+  }
+
+  function initSwipeGestures() {
+    const card = document.getElementById("currentStopSwipeCard");
+    if (!card) return;
+
+    let startX = 0;
+    let startY = 0;
+    let deltaX = 0;
+    let isTracking = false;
+
+    card.addEventListener(
+      "touchstart",
+      (e) => {
+        if (e.touches.length !== 1) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        deltaX = 0;
+        isTracking = true;
+      },
+      { passive: true }
+    );
+
+    card.addEventListener(
+      "touchmove",
+      (e) => {
+        if (!isTracking || e.touches.length !== 1) return;
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
+        deltaX = currentX - startX;
+        const deltaY = currentY - startY;
+
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 20) {
+          if (deltaX < 0) {
+            card.classList.add("swiping-left");
+            card.classList.remove("swiping-right");
+          } else {
+            card.classList.add("swiping-right");
+            card.classList.remove("swiping-left");
+          }
+        }
+      },
+      { passive: true }
+    );
+
+    const handleSwipeEnd = () => {
+      if (!isTracking) return;
+      isTracking = false;
+      card.classList.remove("swiping-left", "swiping-right");
+
+      if (deltaX < -60) {
+        nextStop();
+      } else if (deltaX > 60) {
+        prevStop();
+      }
+    };
+
+    card.addEventListener("touchend", handleSwipeEnd, { passive: true });
+    card.addEventListener("touchcancel", handleSwipeEnd, { passive: true });
+  }
+
+  function initQuickSearch() {
+    const input = document.getElementById("quickSearchInput");
+    const clearBtn = document.getElementById("btnClearQuickSearch");
+    const dropdown = document.getElementById("quickSearchResults");
+    if (!input || !dropdown) return;
+
+    input.addEventListener("input", () => {
+      const query = input.value.trim().toLowerCase();
+      if (!query || !state.route) {
+        dropdown.classList.add("hidden");
+        dropdown.innerHTML = "";
+        if (clearBtn) clearBtn.classList.add("hidden");
+        return;
+      }
+      if (clearBtn) clearBtn.classList.remove("hidden");
+
+      const matches = [];
+      state.route.stops.forEach((stop, stopIdx) => {
+        const stopMatch =
+          stop.title.toLowerCase().includes(query) ||
+          (stop.bairro && stop.bairro.toLowerCase().includes(query));
+        stop.items.forEach((item) => {
+          const tnMatch = item.tn.toLowerCase().includes(query);
+          const complMatch = item.complement && item.complement.toLowerCase().includes(query);
+          if (stopMatch || tnMatch || complMatch) {
+            matches.push({ stop, stopIdx, item });
+          }
+        });
+      });
+
+      if (matches.length === 0) {
+        dropdown.innerHTML = `<div style="padding:12px; font-size:0.82rem; color:var(--text-muted); text-align:center;">Nenhum pacote encontrado para "${query}"</div>`;
+        dropdown.classList.remove("hidden");
+        return;
+      }
+
+      dropdown.innerHTML = matches
+        .slice(0, 15)
+        .map((m) => {
+          const res = state.results[m.item.tn];
+          const isDone = res && res.status === "delivered";
+          return `
+          <div class="quick-search-item" onclick="app.jumpFromSearch(${m.stopIdx})">
+            <div>
+              <div style="font-weight:700; font-size:0.85rem;">Parada #${m.stop.id} • ${m.stop.title}</div>
+              <div class="meta-text" style="font-size:0.75rem;">${m.item.tn} • ${m.item.complement}</div>
+            </div>
+            <span class="badge ${isDone ? "badge-success" : "badge-warning"}" style="font-size:0.72rem;">
+              ${isDone ? "Entregue" : "Pendente"}
+            </span>
+          </div>
+        `;
+        })
+        .join("");
+      dropdown.classList.remove("hidden");
+    });
+
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        input.value = "";
+        dropdown.classList.add("hidden");
+        dropdown.innerHTML = "";
+        clearBtn.classList.add("hidden");
+        input.focus();
+      });
+    }
+
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest("#quickSearchBox")) {
+        dropdown.classList.add("hidden");
+      }
+    });
+  }
+
+  function jumpFromSearch(stopIdx) {
+    jumpToStop(stopIdx);
+    const dropdown = document.getElementById("quickSearchResults");
+    const input = document.getElementById("quickSearchInput");
+    const clearBtn = document.getElementById("btnClearQuickSearch");
+    if (dropdown) dropdown.classList.add("hidden");
+    if (input) input.value = "";
+    if (clearBtn) clearBtn.classList.add("hidden");
+  }
+
   // --- BOOTSTRAP ---
   function init() {
     initTheme();
+    initSwipeGestures();
+    initQuickSearch();
+
+    // PWA Service Worker & Online detection
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    updateOnlineStatus();
 
     // Firebase Auth sync & User Data Isolation
     FirebaseService.onAuthChange((user) => {
@@ -1154,6 +1446,11 @@
     switchTab,
     initGPS,
     confirmStopAndNext,
+    nextStop,
+    prevStop,
+    copyCurrentAddress,
+    sendWhatsAppMessage,
+    jumpFromSearch,
     openMultiBatchModal,
     showToast
   };

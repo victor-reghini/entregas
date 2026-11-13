@@ -358,7 +358,7 @@ main.app-main {
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
-  padding: 14px 12px 80px 12px;
+  padding: 14px 12px calc(100px + env(safe-area-inset-bottom, 24px)) 12px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -877,6 +877,155 @@ main.app-main {
 
 .hidden {
   display: none !important;
+}
+
+/* Quick Search & Filter */
+.quick-search-box {
+  position: relative;
+  width: 100%;
+}
+
+.quick-search-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.quick-search-input-wrap:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
+}
+
+.quick-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.quick-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  z-index: 850;
+  display: flex;
+  flex-direction: column;
+}
+
+.quick-search-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.quick-search-item:last-child {
+  border-bottom: none;
+}
+
+.quick-search-item:hover, .quick-search-item:active {
+  background: var(--surface-2);
+}
+
+/* Swipe Gesture & Stop Card Animation */
+.stop-card {
+  touch-action: pan-y;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.stop-card.swiping-left {
+  transform: translateX(-40px) rotate(-1deg);
+}
+
+.stop-card.swiping-right {
+  transform: translateX(40px) rotate(1deg);
+}
+
+.swipe-hint-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  padding: 4px 2px 0 2px;
+}
+
+/* Waze Button */
+.btn-waze {
+  background: #33ccff;
+  color: #0b2538;
+  font-weight: 700;
+}
+
+.btn-waze:hover {
+  background: #25bceb;
+}
+
+[data-theme="dark"] .btn-waze {
+  background: #1da3d8;
+  color: #ffffff;
+}
+
+/* SPX Failure Reason Quick Pills */
+.reason-tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.reason-tag-pill {
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.reason-tag-pill:hover, .reason-tag-pill.active {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* Offline Indicator Banner */
+.offline-banner {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-bottom: 1px solid var(--warning);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 /* Responsive tweaks */
