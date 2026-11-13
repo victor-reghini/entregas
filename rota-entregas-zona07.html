@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Rota de Entregas — Zona 07 Maringá (12/11/2026)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-2: #273549;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.14);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.14);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 14px 16px; position: sticky; top: 0; z-index: 1000;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    }
+    header h1 { font-size: 1rem; font-weight: 700; line-height: 1.2; }
+    header .sub { font-size: 0.78rem; color: var(--muted); }
+    .badge {
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 5px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+    }
+    .progress-wrap { width: 100%; height: 6px; background: var(--surface-2); }
+    .progress-bar { height: 100%; background: var(--success); width: 0%; transition: width 0.3s ease; }
+    main { flex: 1; max-width: 760px; width: 100%; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+    }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 14px 18px; border-radius: 12px; border: none;
+      font-size: 1rem; font-weight: 700; cursor: pointer; transition: transform 0.08s ease, background 0.15s ease;
+      text-decoration: none;
+    }
+    .btn:active { transform: scale(0.985); }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-success { background: var(--success); color: #052e16; }
+    .btn-success:hover { background: #059669; color: #fff; }
+    .btn-maps { background: #1a73e8; color: #fff; }
+    .btn-maps:hover { background: #1557b0; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { background: var(--surface-2); }
+    .btn-sm { padding: 9px 12px; font-size: 0.85rem; border-radius: 10px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-box { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+    .stat-val { font-size: 1.4rem; font-weight: 800; }
+    .stat-lbl { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+    #map { width: 100%; height: 240px; border-radius: 12px; border: 1px solid var(--border); z-index: 1; }
+    .gps-pill {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 10px 12px; border-radius: 10px; font-size: 0.83rem;
+    }
+    .gps-near { background: var(--success-bg); border-color: var(--success); color: #6ee7b7; }
+    .stop-kicker { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #60a5fa; font-weight: 700; }
+    .stop-title { font-size: 1.35rem; font-weight: 800; margin: 4px 0; }
+    .stop-meta { font-size: 0.85rem; color: var(--muted); }
+    .alert-note {
+      margin-top: 10px; padding: 10px 12px; border-radius: 10px;
+      background: var(--warning-bg); border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #fde68a; font-size: 0.84rem;
+    }
+    .item-row {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px; margin-bottom: 10px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .item-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .tn-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; font-weight: 700; color: #93c5fd; }
+    .item-comp { font-size: 0.88rem; color: var(--text); }
+    .toggle-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .opt-btn {
+      padding: 9px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted); font-weight: 700; font-size: 0.83rem; cursor: pointer;
+    }
+    .opt-btn.active-ok { background: var(--success-bg); border-color: var(--success); color: #34d399; }
+    .opt-btn.active-fail { background: var(--danger-bg); border-color: var(--danger); color: #f87171; }
+    .reason-input {
+      width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--danger);
+      background: var(--bg); color: var(--text); font-size: 0.83rem; display: none;
+    }
+    .hidden { display: none !important; }
+    .stop-list-preview { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+    .preview-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 10px; background: var(--surface-2); border-radius: 8px; font-size: 0.83rem;
+    }
+    .report-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; }
+    .report-table th, .report-table td { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; vertical-align: top; }
+    .report-table th { color: var(--muted); font-weight: 700; }
+    .tag-ok { color: #34d399; font-weight: 700; }
+    .tag-fail { color: #f87171; font-weight: 700; }
+    .nav-footer { display: flex; gap: 8px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Rota de Entregas • Zona 07</h1>
+      <div class="sub" id="headerSub">AT20261112CK9KK • Maringá/PR</div>
+    </div>
+    <div class="badge" id="headerBadge">57 paradas • 101 pacotes</div>
+  </header>
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+
+  <main>
+    <!-- TELA 1: INÍCIO -->
+    <section id="screenStart" class="card">
+      <div class="stop-kicker">Roteiro Otimizado Rua por Rua</div>
+      <h2 class="stop-title">Pronto para iniciar a rota?</h2>
+      <p class="stop-meta" style="margin-bottom:14px;">
+        Os 101 pacotes foram agrupados em <strong>57 paradas sequenciais</strong> sem zigue-zague, seguindo o sentido numérico de cada rua.
+      </p>
+      <div class="grid-2" style="margin-bottom:14px;">
+        <div class="stat-box"><div class="stat-val">57</div><div class="stat-lbl">Endereços / Paradas</div></div>
+        <div class="stat-box"><div class="stat-val">101</div><div class="stat-lbl">Pacotes Totais</div></div>
+      </div>
+
+      <button class="btn btn-primary" onclick="startRoute()" style="margin-bottom:10px;">
+        🚀 Iniciar Rota
+      </button>
+      <button class="btn btn-maps btn-sm" onclick="openFullRouteMaps()">
+        🗺️ Abrir Trecho Inicial no Google Maps (Android Auto)
+      </button>
+
+      <div style="margin-top:16px;">
+        <div style="font-size:0.82rem; font-weight:700; color:var(--muted);">SEQUÊNCIA DE PARADAS:</div>
+        <div class="stop-list-preview" id="startPreviewList"></div>
+      </div>
+    </section>
+
+    <!-- TELA 2: ROTA ATIVA -->
+    <section id="screenActive" class="hidden" style="display:flex; flex-direction:column; gap:14px;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <span class="stop-kicker" id="stopCounter">PARADA 1 DE 57</span>
+          <span class="badge" id="stopPkgCount">2 pacotes</span>
+        </div>
+        <div class="stop-title" id="stopAddress">Rua Professor Lauro Eduardo Werneck, 895</div>
+        <div class="stop-meta" id="stopNeighborhood">Zona 07 • Maringá - CEP 87020-020</div>
+        <div id="stopSpecialNote" class="alert-note hidden"></div>
+
+        <div class="gps-pill" id="gpsStatusBox" style="margin-top:12px;">
+          <span id="gpsText">📡 Aguardando GPS para calcular distância...</span>
+          <button class="btn btn-outline btn-sm" style="width:auto; padding:5px 9px; font-size:0.75rem;" onclick="initGPS()">Ativar GPS</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">
+          <a id="btnGoogleMaps" href="#" target="_blank" rel="noopener" class="btn btn-maps">
+            🧭 Navegar no Google Maps (Android Auto)
+          </a>
+
+          <button id="btnArrived" class="btn btn-success" onclick="markArrived()">
+            📍 Cheguei no Endereço
+          </button>
+        </div>
+      </div>
+
+      <!-- CHECKLIST DE ITENS (EXIBIDO APÓS CLICAR EM "CHEGUEI") -->
+      <div id="deliveryChecklistCard" class="card hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <div>
+            <div class="stop-kicker" style="color:#34d399;">CONFERÊNCIA DE ENTREGA</div>
+            <div style="font-size:1.05rem; font-weight:800;">Marque o status de cada pacote</div>
+          </div>
+          <button class="btn btn-outline btn-sm" style="width:auto;" onclick="markAllDelivered()">Marcar todos OK</button>
+        </div>
+
+        <div id="itemsContainer"></div>
+
+        <button class="btn btn-primary" onclick="confirmStopAndNext()" style="margin-top:8px;">
+          ✅ Confirmar e Ir para Próximo Endereço
+        </button>
+      </div>
+
+      <!-- MAPA INTERATIVO -->
+      <div class="card" style="padding:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:0.82rem; font-weight:700; color:var(--muted);">MAPA DA ROTA E LOCALIZAÇÃO ATUAL</span>
+          <button class="btn btn-outline btn-sm" style="width:auto; padding:4px 8px; font-size:0.75rem;" onclick="centerMapOnStop()">Centralizar Parada</button>
+        </div>
+        <div id="map"></div>
+      </div>
+
+      <div class="nav-footer">
+        <button class="btn btn-outline btn-sm" onclick="prevStop()">⬅️ Parada Anterior</button>
+        <button class="btn btn-outline btn-sm" onclick="finishEarly()">🏁 Encerrar e Ver Relatório</button>
+      </div>
+    </section>
+
+    <!-- TELA 3: RELATÓRIO FINAL -->
+    <section id="screenReport" class="card hidden">
+      <div class="stop-kicker" style="color:#34d399;">ROTA CONCLUÍDA</div>
+      <h2 class="stop-title">Relatório Final de Entregas</h2>
+      <p class="stop-meta" id="reportTimestamp" style="margin-bottom:14px;"></p>
+
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div class="stat-box" style="border-color:var(--success);">
+          <div class="stat-val" style="color:#34d399;" id="repDelivered">0</div>
+          <div class="stat-lbl">Pacotes Entregues</div>
+        </div>
+        <div class="stat-box" style="border-color:var(--danger);">
+          <div class="stat-val" style="color:#f87171;" id="repFailed">0</div>
+          <div class="stat-lbl">Não Entregues / Pendentes</div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
+        <button class="btn btn-primary" onclick="exportCSV()">📥 Baixar Relatório em CSV (Excel)</button>
+        <button class="btn btn-outline" onclick="copyReportText()">📋 Copiar Resumo para WhatsApp</button>
+        <button class="btn btn-outline btn-sm" onclick="resetRoute()">🔄 Reiniciar Rota do Zero</button>
+      </div>
+
+      <div style="font-size:0.85rem; font-weight:700; margin-top:12px; color:#f87171;">Pacotes NÃO Entregues:</div>
+      <div id="failedListBox" style="font-size:0.83rem; margin-bottom:14px;"></div>
+
+      <div style="font-size:0.85rem; font-weight:700; margin-top:12px;">Detalhamento Completo (101 Pacotes):</div>
+      <div style="overflow-x:auto;">
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Código SPX</th>
+              <th>Endereço</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="reportTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const STOPS = [{"id": 1, "street": "Rua Professor Lauro Eduardo Werneck", "number": 895, "title": "Rua Professor Lauro Eduardo Werneck, 895", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-020", "lat": -23.4084721, "lon": -51.9393959, "items": [{"tn": "BR260273430511R", "address": "Rua Professor Lauro Eduardo Werneck, 895, ap 602", "complement": "ap 602"}, {"tn": "BR2634413638484", "address": "Rua Professor Lauro Eduardo Werneck, 895, ap 602 (ed. guaraqueçaba)", "complement": "ap 602 (ed. guaraqueçaba)"}]}, {"id": 2, "street": "Rua Professor Carlos Weiss", "number": 39, "title": "Rua Professor Carlos Weiss, 39", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-310", "lat": -23.4083099, "lon": -51.9405556, "items": [{"tn": "BR2675640745698", "address": "Rua Professor Carlos Weiss, 39, Edifício Royal Suite-Apto 601", "complement": "Edifício Royal Suite-Apto 601"}]}, {"id": 3, "street": "Rua Professor Carlos Weiss", "number": 67, "title": "Rua Professor Carlos Weiss, 67", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-310", "lat": -23.4081821, "lon": -51.9404984, "items": [{"tn": "BR267930728045L", "address": "Rua Professor Carlos Weiss, 67, Apto 602", "complement": "Apto 602"}]}, {"id": 4, "street": "Rua Professor Carlos Weiss", "number": 81, "title": "Rua Professor Carlos Weiss, 81", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-310", "lat": -23.4080544, "lon": -51.9404602, "items": [{"tn": "BR262715374797M", "address": "Rua Professor Carlos Weiss, 81, Residencial Alvorada II", "complement": "Residencial Alvorada II"}]}, {"id": 5, "street": "Rua Professor Ney Marques", "number": 83, "title": "Rua Professor Ney Marques, 83", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-300", "lat": -23.4078712, "lon": -51.9411011, "items": [{"tn": "BR2678790431511", "address": "Rua Professor Ney Marques, 83, Apto. 203", "complement": "Apto. 203"}]}, {"id": 6, "street": "Rua Professor Ney Marques", "number": 54, "title": "Rua Professor Ney Marques, 54", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-300", "lat": -23.4080391, "lon": -51.9411545, "items": [{"tn": "BR2696624021919", "address": "Rua Professor Ney Marques, 54, Apt 403 - EDF campo belo", "complement": "Apt 403 - EDF campo belo"}, {"tn": "BR266748984921G", "address": "Rua Professor Ney Marques, 54, Apto 703", "complement": "Apto 703"}, {"tn": "BR263493620465H", "address": "Rua Professor Ney Marques, 54, Ed. Campo Belo apto 504", "complement": "Ed. Campo Belo apto 504"}]}, {"id": 7, "street": "Rua Professor Guido Inácio Bersch", "number": 109, "title": "Rua Professor Guido Inácio Bersch, 109", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-250", "lat": -23.4088364, "lon": -51.9406319, "items": [{"tn": "BR265594581264W", "address": "Rua Professor Guido Inácio Bersch, 109, Apto 102", "complement": "Apto 102"}]}, {"id": 8, "street": "Rua Professor Guido Inácio Bersch", "number": 123, "title": "Rua Professor Guido Inácio Bersch, 123", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-250", "lat": -23.4087681, "lon": -51.9408304, "items": [{"tn": "BR262499130563J", "address": "R Prf Guido I Bersch, 123, Ap 302 ou 303 (sindico)", "complement": "Ap 302 ou 303 (sindico)"}]}, {"id": 9, "street": "Rua Professor Guido Inácio Bersch", "number": 385, "title": "Rua Professor Guido Inácio Bersch, 385", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-250", "lat": -23.4078979, "lon": -51.9431801, "items": [{"tn": "BR267827469553N", "address": "Rua Professor Guido Inácio Bersch, 385", "complement": "Sem complemento"}]}, {"id": 10, "street": "Rua Professor Antônio de Santa Rosa", "number": 36, "title": "Rua Professor Antônio de Santa Rosa, 36", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-290", "lat": -23.4076575, "lon": -51.9426195, "items": [{"tn": "BR267486536706E", "address": "Rua Professor Antônio de Santa Rosa, 36, Ap. 02 (entregar na manhã)", "complement": "Ap. 02 (entregar na manhã)"}]}, {"id": 11, "street": "Rua Paranaguá", "number": 565, "title": "Rua Paranaguá, 565", "bairro": "Zona 7", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4083309, "lon": -51.9443283, "items": [{"tn": "BR260218803314O", "address": "R Paranaguá, 565, Bl 13 ap 31", "complement": "Bl 13 ap 31"}, {"tn": "BR264978404178F", "address": "R Paranaguá, 565, Bloco 05 apto 24", "complement": "Bloco 05 apto 24"}, {"tn": "BR266191448216U", "address": "R Paranaguá, 565, Bloco 11 Apto 33", "complement": "Bloco 11 Apto 33"}, {"tn": "BR263650639796F", "address": "R Paranaguá, 565, Bloco 12 Apt 11", "complement": "Bloco 12 Apt 11"}, {"tn": "BR264546999036B", "address": "R Paranaguá, 565, Bloco 15 Ap 33", "complement": "Bloco 15 Ap 33"}, {"tn": "BR262135000449X", "address": "R Paranaguá, 565, Bloco 4 ap. 21", "complement": "Bloco 4 ap. 21"}, {"tn": "BR267488148889K", "address": "R Paranaguá, 565, Bloco 9 Ap 21", "complement": "Bloco 9 Ap 21"}, {"tn": "BR266082686912F", "address": "Rua Paranaguá, 565", "complement": "Sem complemento"}, {"tn": "BR2658750475129", "address": "Rua Paranaguá, 565, Apartamento 23 - Bloco 05", "complement": "Apartamento 23 - Bloco 05"}, {"tn": "BR267684191917C", "address": "Rua Paranaguá, 565, Apto 12 bloco 8 Cristóvão Colo", "complement": "Apto 12 bloco 8 Cristóvão Colo"}, {"tn": "BR268128625302Q", "address": "Rua Paranaguá, 565, Apto 31 bloco 4", "complement": "Apto 31 bloco 4"}, {"tn": "BR2622393098277", "address": "Rua Paranaguá, 565, BLOCO 7 APTO 3", "complement": "BLOCO 7 APTO 3"}, {"tn": "BR262937475358T", "address": "Rua Paranaguá, 565, Bloco 10 apto 11", "complement": "Bloco 10 apto 11"}, {"tn": "BR266937690930V", "address": "Rua Paranaguá, 565, Bloco 3 ap 21", "complement": "Bloco 3 ap 21"}]}, {"id": 12, "street": "Rua Paranaguá", "number": 377, "title": "Rua Paranaguá, 377", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4089203, "lon": -51.9444542, "items": [{"tn": "BR268485991376J", "address": "Rua Paranaguá, 377", "complement": "Sem complemento"}]}, {"id": 13, "street": "Rua Paranaguá", "number": 350, "title": "Rua Paranaguá, 350", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4090996, "lon": -51.9439011, "items": [{"tn": "BR268498085265U", "address": "Rua Paranaguá, 350, Ed Giacopini apto 24", "complement": "Ed Giacopini apto 24"}]}, {"id": 14, "street": "Rua Paranaguá", "number": 249, "title": "Rua Paranaguá, 249", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4100056, "lon": -51.9439583, "items": [{"tn": "BR265621469741X", "address": "Rua Paranaguá, 249, Sala 3 EBISU", "complement": "Sala 3 EBISU"}, {"tn": "BR2604605135433", "address": "Rua Paranaguá, 249, Salão claus cabeleireiros", "complement": "Salão claus cabeleireiros"}]}, {"id": 15, "street": "Rua Paranaguá", "number": 124, "title": "Rua Paranaguá, 124", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4112091, "lon": -51.9433403, "items": [{"tn": "BR261041983595B", "address": "Rua Paranaguá, 124", "complement": "Sem complemento"}, {"tn": "BR263496589767Z", "address": "Rua Paranaguá, 124", "complement": "Sem complemento"}]}, {"id": 16, "street": "Rua Paranaguá", "number": 123, "title": "Rua Paranaguá, 123", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-190", "lat": -23.4112301, "lon": -51.9437065, "items": [{"tn": "BR267311351756K", "address": "Rua Paranaguá, 123", "complement": "Sem complemento"}, {"tn": "BR2628435447687", "address": "Rua Paranaguá, 123", "complement": "Sem complemento"}, {"tn": "BR262646370832Y", "address": "Rua Paranaguá, 123", "complement": "Sem complemento"}]}, {"id": 17, "street": "Rua Marquês de Abrantes", "number": 831, "title": "Rua Marquês de Abrantes, 831", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-170", "lat": -23.4108009, "lon": -51.9459, "items": [{"tn": "BR2665373973473", "address": "Rua Marquês de Abrantes, 831, Apartamento 501", "complement": "Apartamento 501"}, {"tn": "BR260820109917L", "address": "Rua Marquês de Abrantes, 831, Apto 503", "complement": "Apto 503"}, {"tn": "BR2608219580267", "address": "Rua Marquês de Abrantes, 831, Apto 503", "complement": "Apto 503"}]}, {"id": 18, "street": "Rua Osvaldo Cruz", "number": 543, "title": "Rua Osvaldo Cruz, 543", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.411842, "lon": -51.944511, "items": [{"tn": "BR264747206111M", "address": "Rua Osvaldo Cruz, 543, Apto 402", "complement": "Apto 402"}]}, {"id": 19, "street": "Rua Osvaldo Cruz", "number": 452, "title": "Rua Osvaldo Cruz, 452", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4113007, "lon": -51.9435997, "items": [{"tn": "BR2629130779655", "address": "Rua Osvaldo Cruz, 452", "complement": "Sem complemento"}, {"tn": "BR263030144800V", "address": "Rua Osvaldo Cruz, 452", "complement": "Sem complemento"}, {"tn": "BR266235220815O", "address": "Rua Osvaldo Cruz, 452", "complement": "Sem complemento"}, {"tn": "BR2693769379979", "address": "Rua Osvaldo Cruz, 452, Ap 102", "complement": "Ap 102"}, {"tn": "BR2669180908395", "address": "Rua Osvaldo Cruz, 452, Apto 506", "complement": "Apto 506"}]}, {"id": 20, "street": "Rua Osvaldo Cruz", "number": 359, "title": "Rua Osvaldo Cruz, 359", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4111302, "lon": -51.9428804, "items": [{"tn": "BR2639238045066", "address": "R Osvaldo Cruz, 359, ap 22", "complement": "ap 22"}]}, {"id": 21, "street": "Rua Osvaldo Cruz", "number": 340, "title": "Rua Osvaldo Cruz, 340", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4110603, "lon": -51.9427109, "items": [{"tn": "BR261089050026S", "address": "Rua Osvaldo Cruz, 340, Apto 108", "complement": "Apto 108"}]}, {"id": 22, "street": "Rua Osvaldo Cruz", "number": 335, "title": "Rua Osvaldo Cruz, 335", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4111443, "lon": -51.9427376, "items": [{"tn": "BR266194949113N", "address": "Rua Osvaldo Cruz, 335, Apt 1002", "complement": "Apt 1002"}, {"tn": "BR268045096737F", "address": "Rua Osvaldo Cruz, 335, Ed.Ibirapuera Ap.501", "complement": "Ed.Ibirapuera Ap.501"}, {"tn": "BR266087073984N", "address": "Rua Osvaldo Cruz, 335, apto 603", "complement": "apto 603"}, {"tn": "BR261514816939V", "address": "Rua Osvaldo Cruz, 335, apto 603", "complement": "apto 603"}]}, {"id": 23, "street": "Rua Osvaldo Cruz", "number": 317, "title": "Rua Osvaldo Cruz, 317", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-020", "lat": -23.4111884, "lon": -51.9425552, "items": [{"tn": "BR264237723453H", "address": "Rua Osvaldo Cruz, 317, Edifício barbacena. Até as 10", "complement": "Edifício barbacena. Até as 10"}, {"tn": "BR266484878592Y", "address": "Rua Osvaldo Cruz, 317, apto 101", "complement": "apto 101"}, {"tn": "BR2640571339276", "address": "Rua Osvaldo Cruz, 317, apto 101", "complement": "apto 101"}, {"tn": "BR2626596583736", "address": "Rua Osvaldo Cruz, 317, apto 101", "complement": "apto 101"}]}, {"id": 24, "street": "Rua Osvaldo Cruz", "number": 312, "title": "Rua Osvaldo Cruz, 312", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4110279, "lon": -51.9424858, "items": [{"tn": "BR2667830171683", "address": "Rua Osvaldo Cruz, 312, Ed. Sol Vermelho. AP 103", "complement": "Ed. Sol Vermelho. AP 103"}]}, {"id": 25, "street": "Rua Osvaldo Cruz", "number": 297, "title": "Rua Osvaldo Cruz, 297", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4110413, "lon": -51.9424095, "items": [{"tn": "BR264547114372H", "address": "Rua Osvaldo Cruz, 297, Apartamento 304", "complement": "Apartamento 304"}]}, {"id": 26, "street": "Rua Osvaldo Cruz", "number": 186, "title": "Rua Osvaldo Cruz, 186", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4106388, "lon": -51.941349, "items": [{"tn": "BR261941530316Q", "address": "R Osvaldo Cruz, 186, Ap 05", "complement": "Ap 05"}]}, {"id": 27, "street": "Rua Osvaldo Cruz", "number": 126, "title": "Rua Osvaldo Cruz, 126", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4104691, "lon": -51.9408035, "items": [{"tn": "BR269759030600J", "address": "Rua Osvaldo Cruz, 126", "complement": "Sem complemento"}, {"tn": "BR261392904280Y", "address": "Rua Osvaldo Cruz, 126, Ap 204", "complement": "Ap 204"}]}, {"id": 28, "street": "Rua Osvaldo Cruz", "number": 114, "title": "Rua Osvaldo Cruz, 114", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4104042, "lon": -51.9406891, "items": [{"tn": "BR2685232541303", "address": "R Osvaldo Cruz, 114, Edificio Beira Rio ap. 7", "complement": "Edificio Beira Rio ap. 7"}, {"tn": "BR260919491279M", "address": "Rua Osvaldo Cruz, 114, Apto 304", "complement": "Apto 304"}]}, {"id": 29, "street": "Rua Osvaldo Cruz", "number": 91, "title": "Rua Osvaldo Cruz, 91", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-200", "lat": -23.4106007, "lon": -51.9403, "items": [{"tn": "BR261897551499D", "address": "R Osvaldo Cruz, 91, apto 203", "complement": "apto 203"}]}, {"id": 30, "street": "Rua Mandaguari", "number": 48, "title": "Rua Mandaguari, 48", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4097004, "lon": -51.9399986, "items": [{"tn": "BR262346090076M", "address": "Rua Mandaguari, 48, Ap 508", "complement": "Ap 508"}, {"tn": "BR269219129900L", "address": "Rua Mandaguari, 48, Ap 508", "complement": "Ap 508"}]}, {"id": 31, "street": "Rua Mandaguari", "number": 92, "title": "Rua Mandaguari, 92", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4097633, "lon": -51.9405746, "items": [{"tn": "BR2612208624447", "address": "Rua Mandaguari, 92, 302 A", "complement": "302 A"}]}, {"id": 32, "street": "Rua Mandaguari", "number": 152, "title": "Rua Mandaguari, 152", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4095707, "lon": -51.9411697, "items": [{"tn": "BR266952106553G", "address": "Rua Mandaguari, 152, Apto303", "complement": "Apto303"}, {"tn": "BR268988893520N", "address": "Rua Mandaguari, 152, Apto303", "complement": "Apto303"}]}, {"id": 33, "street": "Rua Mandaguari", "number": 182, "title": "Rua Mandaguari, 182", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4092007, "lon": -51.9412994, "items": [{"tn": "BR2637941665265", "address": "Rua Mandaguari, 182, Interfonar", "complement": "Interfonar"}]}, {"id": 34, "street": "Rua Mandaguari", "number": 198, "title": "Rua Mandaguari, 198", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4094296, "lon": -51.9415894, "items": [{"tn": "BR2613223406388", "address": "R Mandaguari, 198, Apartamento 204", "complement": "Apartamento 204"}]}, {"id": 35, "street": "Rua Mandaguari", "number": 235, "title": "Rua Mandaguari, 235", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4093418, "lon": -51.9418793, "items": [{"tn": "BR264632795332P", "address": "Rua Mandaguari, 235", "complement": "Sem complemento"}]}, {"id": 36, "street": "Rua Mandaguari", "number": 386, "title": "Rua Mandaguari, 386", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.408804, "lon": -51.943264, "items": [{"tn": "BR262868992732D", "address": "R Mandaguari, 386, Ap 32", "complement": "Ap 32"}]}, {"id": 37, "street": "Rua Mandaguari", "number": 647, "title": "Rua Mandaguari, 647", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-230", "lat": -23.4095001, "lon": -51.9454994, "items": [{"tn": "BR2626700549016", "address": "Rua Mandaguari, 647, Apto 13 Ed. Aliança", "complement": "Apto 13 Ed. Aliança"}]}, {"id": 38, "street": "Rua Manoel de Macedo", "number": 98, "title": "Rua Manoel de Macedo, 98", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-240", "lat": -23.4085827, "lon": -51.9453773, "items": [{"tn": "BR261779390270T", "address": "R Manoel de Macedo, 98", "complement": "Sem complemento"}]}, {"id": 39, "street": "Rua Manoel de Macedo", "number": 72, "title": "Rua Manoel de Macedo, 72", "bairro": "Zona 7", "city": "Maringá", "zipcode": "87020-240", "lat": -23.4086742, "lon": -51.9451332, "items": [{"tn": "BR260686790600G", "address": "R Manoel de Macedo, 72, Ap 06", "complement": "Ap 06"}]}, {"id": 40, "street": "Rua Tietê", "number": 206, "title": "Rua Tietê, 206", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-210", "lat": -23.4099007, "lon": -51.9431, "items": [{"tn": "BR2603462421938", "address": "R Tietê, 206, Apartamento 201 Ed. Star City", "complement": "Apartamento 201 Ed. Star City"}, {"tn": "BR267331264548Y", "address": "Rua Tietê, 206, Estar City apartamento  201", "complement": "Estar City apartamento  201"}]}, {"id": 41, "street": "Rua Tietê", "number": 192, "title": "Rua Tietê, 192", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-210", "lat": -23.409975, "lon": -51.942868, "items": [{"tn": "BR268549212642W", "address": "Rua Tietê, 192, Apartamento 52", "complement": "Apartamento 52"}]}, {"id": 42, "street": "Rua Tietê", "number": 177, "title": "Rua Tietê, 177", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-210", "lat": -23.4101315, "lon": -51.9427032, "items": [{"tn": "BR265071492635B", "address": "Rua Tietê, 177, Ap 404", "complement": "Ap 404"}]}, {"id": 43, "street": "Rua Tietê", "number": 148, "title": "Rua Tietê, 148", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-210", "lat": -23.4100666, "lon": -51.9423943, "items": [{"tn": "BR262792984612T", "address": "Rua Tietê, 148, Cond Guilherme Palma AP 307", "complement": "Cond Guilherme Palma AP 307"}]}, {"id": 44, "street": "Rua Tietê", "number": 137, "title": "Rua Tietê, 137", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-210", "lat": -23.4100285, "lon": -51.942337, "items": [{"tn": "BR260957555165X", "address": "Rua Tietê, 137, Apto 603", "complement": "Apto 603"}]}, {"id": 45, "street": "Rua Tietê", "number": 11, "title": "Rua Tietê, 11", "bairro": "zona 7", "city": "Maringá", "zipcode": "87020-210", "lat": -23.4096317, "lon": -51.941143, "items": [{"tn": "BR268985265532E", "address": "R Tietê, 11, apartamento 803", "complement": "apartamento 803"}, {"tn": "BR265683361286Q", "address": "Rua Tietê, 11, Apto 204", "complement": "Apto 204"}, {"tn": "BR269222815865S", "address": "Rua Tietê, 11, Apto 402", "complement": "Apto 402"}]}, {"id": 46, "street": "Rua Bragança", "number": 89, "title": "Rua Bragança, 89", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.4095993, "lon": -51.9431992, "items": [{"tn": "BR268854042864J", "address": "R Bragança, 89, Apto 71", "complement": "Apto 71"}, {"tn": "BR266722849376M", "address": "R Bragança, 89, Edifício dona Filomena apt 71", "complement": "Edifício dona Filomena apt 71"}]}, {"id": 47, "street": "Rua Bragança", "number": 273, "title": "Rua Bragança, 273", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.4099522, "lon": -51.9448204, "items": [{"tn": "BR268294674150R", "address": "R Bragança, 273, Depois da avenida paranagua", "complement": "Depois da avenida paranagua"}, {"tn": "BR263733942020T", "address": "Rua Bragança, 273", "complement": "Sem complemento"}]}, {"id": 48, "street": "Rua Bragança", "number": 274, "title": "Rua Bragança, 274", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.4099274, "lon": -51.9448967, "items": [{"tn": "BR2632543993353", "address": "Rua Bragança, 274, Apt. 13 - Edifício Cosmo", "complement": "Apt. 13 - Edifício Cosmo"}]}, {"id": 49, "street": "Rua Bragança", "number": 304, "title": "Rua Bragança, 304", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.4100037, "lon": -51.9452019, "items": [{"tn": "BR2676641304949", "address": "Rua Bragança, 304, Apto 7", "complement": "Apto 7"}]}, {"id": 50, "street": "Rua Bragança", "number": 531, "title": "Rua Bragança, 531", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.410801, "lon": -51.947102, "items": [{"tn": "BR2674999007618", "address": "Rua Bragança, 531, Apto 401", "complement": "Apto 401"}]}, {"id": 51, "street": "Rua Bragança", "number": 630, "title": "Rua Bragança, 630", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-220", "lat": -23.4090481, "lon": -51.9423103, "items": [{"tn": "BR263371709389Y", "address": "R Bragança, 630, Apt 1401", "complement": "Apt 1401"}]}, {"id": 52, "street": "Rua Jangada", "number": 90, "title": "Rua Jangada, 90", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-180", "lat": -23.4088249, "lon": -51.9470711, "items": [{"tn": "BR2654569002076", "address": "Rua Jangada, 90", "complement": "Sem complemento"}]}, {"id": 53, "street": "Rua Quintino Bocaiúva", "number": 1199, "title": "Rua Quintino Bocaiúva, 1199", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-160", "lat": -23.4081955, "lon": -51.9475594, "items": [{"tn": "BR2649336689381", "address": "Rua Quintino Bocaiúva, 1199, Ao lado NobelPro", "complement": "Ao lado NobelPro"}]}, {"id": 54, "street": "Rua Quintino Bocaiúva", "number": 674, "title": "Rua Quintino Bocaiúva, 674", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-160", "lat": -23.412218, "lon": -51.947377, "items": [{"tn": "BR260194637567J", "address": "Rua Quintino Bocaiúva, 674, Ap 1406", "complement": "Ap 1406"}, {"tn": "BR2618496967231", "address": "Rua Quintino Bocaiúva, 674, Apartamento 1501", "complement": "Apartamento 1501"}, {"tn": "BR2666222759939", "address": "Rua Quintino Bocaiúva, 674, Apartamento 1501", "complement": "Apartamento 1501"}, {"tn": "BR266154727814R", "address": "Rua Quintino Bocaiúva, 674, Apto 1506", "complement": "Apto 1506"}]}, {"id": 55, "street": "Av. Colombo", "number": 6760, "title": "Av. Colombo, 6760", "bairro": "Zona7", "city": "Maringá", "zipcode": "87020-000", "lat": -23.413202, "lon": -51.946993, "items": [{"tn": "BR265505633859N", "address": "Av Colombo, 6760", "complement": "Sem complemento"}]}, {"id": 56, "street": "Rua Rui Barbosa", "number": 564, "title": "Rua Rui Barbosa, 564", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-090", "lat": -23.413891, "lon": -51.944977, "items": [{"tn": "BR266332510802H", "address": "R Rui Barbosa, 564, Apto 202", "complement": "Apto 202"}]}, {"id": 57, "street": "Rua Campos Sales", "number": 210, "title": "Rua Campos Sales, 210", "bairro": "Zona 07", "city": "Maringá", "zipcode": "87020-080", "lat": -23.414, "lon": -51.9417, "items": [{"tn": "BR2647159270666", "address": "Rua Campos Sales, 210, Apt.102 - Ed. Unique", "complement": "Apt.102 - Ed. Unique"}]}];
+
+    const STORAGE_KEY = 'rota_maringa_20261112_v1';
+    let state = {
+      started: false,
+      finished: false,
+      currentStopIdx: 0,
+      arrivedCurrent: false,
+      startTime: null,
+      endTime: null,
+      results: {} // tn -> { status: 'delivered' | 'failed', reason: '', time: '' }
+    };
+
+    let map = null;
+    let stopMarker = null;
+    let nextMarker = null;
+    let userMarker = null;
+    let routeLine = null;
+    let watchId = null;
+    let userCoords = null;
+    let autoArrivedTriggeredForStop = null;
+
+    function loadState() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          state = { ...state, ...parsed };
+        }
+      } catch (e) { console.warn(e); }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) { console.warn(e); }
+    }
+
+    function renderStartPreview() {
+      const list = document.getElementById('startPreviewList');
+      list.innerHTML = STOPS.map(s => `
+        <div class="preview-row">
+          <span><strong>#${s.id}</strong> ${s.title}</span>
+          <span style="color:var(--muted);">${s.items.length} ${s.items.length > 1 ? 'itens' : 'item'}</span>
+        </div>
+      `).join('');
+    }
+
+    function startRoute() {
+      state.started = true;
+      state.finished = false;
+      if (!state.startTime) state.startTime = new Date().toLocaleString('pt-BR');
+      saveState();
+      showScreen();
+      initGPS();
+    }
+
+    function showScreen() {
+      document.getElementById('screenStart').classList.add('hidden');
+      document.getElementById('screenActive').classList.add('hidden');
+      document.getElementById('screenReport').classList.add('hidden');
+
+      if (state.finished) {
+        document.getElementById('screenReport').classList.remove('hidden');
+        renderReport();
+        updateProgress();
+        return;
+      }
+
+      if (!state.started) {
+        document.getElementById('screenStart').classList.remove('hidden');
+        return;
+      }
+
+      document.getElementById('screenActive').classList.remove('hidden');
+      initMap();
+      renderCurrentStop();
+      updateProgress();
+    }
+
+    function updateProgress() {
+      const totalItems = STOPS.reduce((acc, s) => acc + s.items.length, 0);
+      const doneItems = Object.keys(state.results).length;
+      const pct = Math.round((doneItems / totalItems) * 100);
+      document.getElementById('progressBar').style.width = pct + '%';
+      document.getElementById('headerBadge').textContent = `${doneItems}/${totalItems} pacotes (${pct}%)`;
+    }
+
+    function buildGoogleMapsUrl(stop) {
+      // Universal Google Maps Navigation URL — opens directly in Google Maps app & syncs with Android Auto
+      const query = encodeURIComponent(`${stop.street}, ${stop.number}, ${stop.bairro}, ${stop.city} - PR, ${stop.zipcode}`);
+      return `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}&destination_place_id=&travelmode=driving&query=${query}`;
+    }
+
+    function openFullRouteMaps() {
+      // Opens the first 9 waypoints in Google Maps multi-stop route for Android Auto
+      const slice = STOPS.slice(0, 9);
+      const dest = slice[slice.length - 1];
+      const waypoints = slice.slice(0, -1).map(s => `${s.lat},${s.lon}`).join('|');
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lon}&waypoints=${encodeURIComponent(waypoints)}&travelmode=driving`;
+      window.open(url, '_blank');
+    }
+
+    function renderCurrentStop() {
+      const stop = STOPS[state.currentStopIdx];
+      document.getElementById('stopCounter').textContent = `PARADA ${stop.id} DE ${STOPS.length}`;
+      document.getElementById('stopPkgCount').textContent = `${stop.items.length} ${stop.items.length > 1 ? 'pacotes' : 'pacote'}`;
+      document.getElementById('stopAddress').textContent = stop.title;
+      document.getElementById('stopNeighborhood').textContent = `${stop.bairro} • ${stop.city} - CEP ${stop.zipcode}`;
+      document.getElementById('btnGoogleMaps').href = buildGoogleMapsUrl(stop);
+
+      // Check special notes in items
+      const notes = stop.items
+        .filter(it => /manhã|até as|sindico|interfonar|depois da/i.test(it.address))
+        .map(it => it.complement);
+      const noteBox = document.getElementById('stopSpecialNote');
+      if (notes.length > 0) {
+        noteBox.textContent = '⚠️ Observação: ' + [...new Set(notes)].join(' | ');
+        noteBox.classList.remove('hidden');
+      } else {
+        noteBox.classList.add('hidden');
+      }
+
+      const checklistCard = document.getElementById('deliveryChecklistCard');
+      const btnArrived = document.getElementById('btnArrived');
+
+      if (state.arrivedCurrent) {
+        checklistCard.classList.remove('hidden');
+        btnArrived.textContent = '✅ Você está no local (Conferindo itens abaixo)';
+        renderChecklistItems(stop);
+      } else {
+        checklistCard.classList.add('hidden');
+        btnArrived.textContent = '📍 Cheguei no Endereço';
+      }
+
+      updateMapMarkers();
+      if (userCoords) updateDistanceUI(userCoords.lat, userCoords.lon);
+    }
+
+    function markArrived() {
+      state.arrivedCurrent = true;
+      const stop = STOPS[state.currentStopIdx];
+      // Pre-select 'delivered' by default so driver only changes exceptions
+      stop.items.forEach(it => {
+        if (!state.results[it.tn]) {
+          state.results[it.tn] = { status: 'delivered', reason: '', time: new Date().toLocaleTimeString('pt-BR') };
+        }
+      });
+      saveState();
+      renderCurrentStop();
+      document.getElementById('deliveryChecklistCard').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function renderChecklistItems(stop) {
+      const container = document.getElementById('itemsContainer');
+      container.innerHTML = stop.items.map((it, idx) => {
+        const res = state.results[it.tn] || { status: 'delivered', reason: '' };
+        const isOk = res.status === 'delivered';
+        return `
+          <div class="item-row">
+            <div class="item-header">
+              <span class="tn-code">${idx + 1}. ${it.tn}</span>
+              <span style="font-size:0.75rem; color:var(--muted);">${stop.title}</span>
+            </div>
+            <div class="item-comp"><strong>Complemento:</strong> ${it.complement}</div>
+            <div class="toggle-group">
+              <button type="button" class="opt-btn ${isOk ? 'active-ok' : ''}" onclick="setItemStatus('${it.tn}', 'delivered')">
+                ✔ Entregue
+              </button>
+              <button type="button" class="opt-btn ${!isOk ? 'active-fail' : ''}" onclick="setItemStatus('${it.tn}', 'failed')">
+                ✖ Não Entregue
+              </button>
+            </div>
+            <input
+              type="text"
+              class="reason-input"
+              id="reason_${it.tn}"
+              style="display:${!isOk ? 'block' : 'none'};"
+              placeholder="Motivo (ex: destinatário ausente, endereço não localizado...)"
+              value="${(res.reason || '').replace(/"/g, '&quot;')}"
+              oninput="setItemReason('${it.tn}', this.value)"
+            />
+          </div>
+        `;
+      }).join('');
+    }
+
+    function setItemStatus(tn, status) {
+      const prev = state.results[tn] || { reason: '' };
+      state.results[tn] = {
+        status,
+        reason: status === 'delivered' ? '' : prev.reason,
+        time: new Date().toLocaleTimeString('pt-BR')
+      };
+      saveState();
+      renderChecklistItems(STOPS[state.currentStopIdx]);
+      updateProgress();
+    }
+
+    function setItemReason(tn, reason) {
+      if (!state.results[tn]) state.results[tn] = { status: 'failed', reason: '', time: new Date().toLocaleTimeString('pt-BR') };
+      state.results[tn].reason = reason;
+      saveState();
+    }
+
+    function markAllDelivered() {
+      const stop = STOPS[state.currentStopIdx];
+      stop.items.forEach(it => {
+        state.results[it.tn] = { status: 'delivered', reason: '', time: new Date().toLocaleTimeString('pt-BR') };
+      });
+      saveState();
+      renderChecklistItems(stop);
+      updateProgress();
+    }
+
+    function confirmStopAndNext() {
+      const stop = STOPS[state.currentStopIdx];
+      stop.items.forEach(it => {
+        if (!state.results[it.tn]) {
+          state.results[it.tn] = { status: 'delivered', reason: '', time: new Date().toLocaleTimeString('pt-BR') };
+        }
+      });
+
+      if (state.currentStopIdx < STOPS.length - 1) {
+        state.currentStopIdx += 1;
+        state.arrivedCurrent = false;
+        saveState();
+        showScreen();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        state.finished = true;
+        state.endTime = new Date().toLocaleString('pt-BR');
+        saveState();
+        showScreen();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+
+    function prevStop() {
+      if (state.currentStopIdx > 0) {
+        state.currentStopIdx -= 1;
+        state.arrivedCurrent = false;
+        saveState();
+        showScreen();
+      }
+    }
+
+    function finishEarly() {
+      if (confirm('Deseja encerrar a rota agora e gerar o relatório com o status atual?')) {
+        state.finished = true;
+        state.endTime = new Date().toLocaleString('pt-BR');
+        saveState();
+        showScreen();
+      }
+    }
+
+    function resetRoute() {
+      if (confirm('Tem certeza que deseja apagar todo o progresso e reiniciar do zero?')) {
+        localStorage.removeItem(STORAGE_KEY);
+        state = {
+          started: false,
+          finished: false,
+          currentStopIdx: 0,
+          arrivedCurrent: false,
+          startTime: null,
+          endTime: null,
+          results: {}
+        };
+        autoArrivedTriggeredForStop = null;
+        showScreen();
+      }
+    }
+
+    // GPS & Geofencing
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const toRad = x => x * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function initGPS() {
+      const gpsText = document.getElementById('gpsText');
+      if (!('geolocation' in navigator)) {
+        gpsText.textContent = '⚠️ Geolocalização não suportada neste navegador.';
+        return;
+      }
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      gpsText.textContent = '📡 Obtendo sinal de GPS...';
+
+      watchId = navigator.geolocation.watchPosition(
+        pos => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          userCoords = { lat: latitude, lon: longitude, accuracy };
+          updateDistanceUI(latitude, longitude, accuracy);
+          updateUserMarker(latitude, longitude);
+        },
+        err => {
+          gpsText.textContent = '⚠️ GPS indisponível (' + err.message + '). Use o botão "Cheguei" manualmente.';
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    }
+
+    function updateDistanceUI(lat, lon, accuracy = null) {
+      if (!state.started || state.finished) return;
+      const stop = STOPS[state.currentStopIdx];
+      const dist = Math.round(haversineMeters(lat, lon, stop.lat, stop.lon));
+      const box = document.getElementById('gpsStatusBox');
+      const gpsText = document.getElementById('gpsText');
+      const accStr = accuracy ? ` (±${Math.round(accuracy)}m)` : '';
+
+      if (dist <= 65) {
+        box.classList.add('gps-near');
+        gpsText.textContent = `🎯 Você chegou! Distância: ${dist}m${accStr}`;
+        if (!state.arrivedCurrent && autoArrivedTriggeredForStop !== stop.id) {
+          autoArrivedTriggeredForStop = stop.id;
+          markArrived();
+        }
+      } else {
+        box.classList.remove('gps-near');
+        const distLabel = dist >= 1000 ? `${(dist/1000).toFixed(2)} km` : `${dist} m`;
+        gpsText.textContent = `📡 Distância até o destino: ${distLabel}${accStr}`;
+      }
+    }
+
+    // Leaflet Map
+    function initMap() {
+      if (map) {
+        setTimeout(() => map.invalidateSize(), 150);
+        return;
+      }
+      const first = STOPS[0];
+      map = L.map('map').setView([first.lat, first.lon], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+
+      const latlngs = STOPS.map(s => [s.lat, s.lon]);
+      routeLine = L.polyline(latlngs, { color: '#3b82f6', weight: 3, opacity: 0.55, dashArray: '6, 6' }).addTo(map);
+    }
+
+    function updateMapMarkers() {
+      if (!map) return;
+      const stop = STOPS[state.currentStopIdx];
+      if (stopMarker) map.removeLayer(stopMarker);
+      if (nextMarker) map.removeLayer(nextMarker);
+
+      stopMarker = L.circleMarker([stop.lat, stop.lon], {
+        radius: 10, color: '#ffffff', weight: 2, fillColor: '#10b981', fillOpacity: 1
+      }).addTo(map).bindPopup(`<strong>Parada #${stop.id} (Atual)</strong><br>${stop.title}`).openPopup();
+
+      if (state.currentStopIdx + 1 < STOPS.length) {
+        const nxt = STOPS[state.currentStopIdx + 1];
+        nextMarker = L.circleMarker([nxt.lat, nxt.lon], {
+          radius: 7, color: '#ffffff', weight: 1.5, fillColor: '#f59e0b', fillOpacity: 0.9
+        }).addTo(map).bindPopup(`<strong>Próxima (#${nxt.id})</strong><br>${nxt.title}`);
+      }
+
+      map.setView([stop.lat, stop.lon], 16);
+    }
+
+    function updateUserMarker(lat, lon) {
+      if (!map) return;
+      if (!userMarker) {
+        userMarker = L.circleMarker([lat, lon], {
+          radius: 8, color: '#ffffff', weight: 2, fillColor: '#3b82f6', fillOpacity: 1
+        }).addTo(map).bindPopup('Sua localização atual');
+      } else {
+        userMarker.setLatLng([lat, lon]);
+      }
+    }
+
+    function centerMapOnStop() {
+      if (!map) return;
+      const stop = STOPS[state.currentStopIdx];
+      map.setView([stop.lat, stop.lon], 17);
+    }
+
+    // Report
+    function renderReport() {
+      let delivered = 0;
+      let failed = 0;
+      const failedItems = [];
+      const rowsHtml = [];
+      let seq = 0;
+
+      STOPS.forEach(s => {
+        s.items.forEach(it => {
+          seq += 1;
+          const res = state.results[it.tn];
+          const status = res ? res.status : 'failed';
+          const reason = res && res.reason ? res.reason : (res ? '' : 'Não visitado');
+          if (status === 'delivered') {
+            delivered += 1;
+          } else {
+            failed += 1;
+            failedItems.push({ seq, tn: it.tn, address: it.address, reason });
+          }
+          rowsHtml.push(`
+            <tr>
+              <td>${seq}</td>
+              <td><code>${it.tn}</code></td>
+              <td>${it.address}</td>
+              <td class="${status === 'delivered' ? 'tag-ok' : 'tag-fail'}">
+                ${status === 'delivered' ? 'Entregue' : 'Não entregue'}${reason ? `<br><small style="color:var(--muted);">${reason}</small>` : ''}
+              </td>
+            </tr>
+          `);
+        });
+      });
+
+      document.getElementById('repDelivered').textContent = delivered;
+      document.getElementById('repFailed').textContent = failed;
+      document.getElementById('reportTimestamp').textContent =
+        `Início: ${state.startTime || '-'} • Fim: ${state.endTime || new Date().toLocaleString('pt-BR')}`;
+
+      const failedBox = document.getElementById('failedListBox');
+      if (failedItems.length === 0) {
+        failedBox.innerHTML = '<div style="color:#34d399; padding:8px 0;">🎉 Todos os 101 pacotes foram entregues com sucesso!</div>';
+      } else {
+        failedBox.innerHTML = failedItems.map(f => `
+          <div class="item-row" style="border-color:var(--danger); margin-top:6px;">
+            <div><strong>#${f.seq} • ${f.tn}</strong></div>
+            <div>${f.address}</div>
+            <div style="color:#fca5a5;">Motivo: ${f.reason || 'Não informado'}</div>
+          </div>
+        `).join('');
+      }
+
+      document.getElementById('reportTableBody').innerHTML = rowsHtml.join('');
+    }
+
+    function exportCSV() {
+      const lines = [['Ordem', 'Parada', 'SPX_TN', 'Rua', 'Numero', 'Endereco_Completo', 'Status', 'Motivo', 'Horario'].join(';')];
+      let seq = 0;
+      STOPS.forEach(s => {
+        s.items.forEach(it => {
+          seq += 1;
+          const res = state.results[it.tn];
+          const status = res && res.status === 'delivered' ? 'Entregue' : 'Nao Entregue';
+          const reason = (res && res.reason ? res.reason : (res ? '' : 'Nao visitado')).replace(/;/g, ',');
+          const time = res && res.time ? res.time : '';
+          lines.push([seq, s.id, it.tn, `"${s.street}"`, s.number, `"${it.address}"`, status, `"${reason}"`, time].join(';'));
+        });
+      });
+      const blob = new Blob(["\uFEFF" + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'relatorio-entregas-12-11-2026.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function copyReportText() {
+      let delivered = 0, failed = 0;
+      const fails = [];
+      STOPS.forEach(s => s.items.forEach(it => {
+        const res = state.results[it.tn];
+        if (res && res.status === 'delivered') delivered++;
+        else {
+          failed++;
+          fails.push(`- ${it.tn} (${it.address}): ${(res && res.reason) || 'Não visitado'}`);
+        }
+      }));
+      const text = [
+        `📦 *RELATÓRIO DE ENTREGAS — ZONA 07 (12/11/2026)*`,
+        `✅ Entregues: ${delivered} / 101`,
+        `❌ Não entregues: ${failed}`,
+        fails.length ? `\n*Pendências:*\n` + fails.join('\n') : '\n🎉 100% entregue!'
+      ].join('\n');
+      navigator.clipboard.writeText(text).then(() => alert('Resumo copiado para a área de transferência!'));
+    }
+
+    // Boot
+    loadState();
+    renderStartPreview();
+    showScreen();
+    if (state.started && !state.finished) initGPS();
+  </script>
+</body>
+</html>
