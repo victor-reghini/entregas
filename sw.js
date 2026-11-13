@@ -1,15 +1,16 @@
 // SPX Express Route PWA Service Worker
-const CACHE_NAME = "spx-rotas-v3";
+const CACHE_NAME = "spx-rotas-v5";
 const STATIC_ASSETS = [
-  "/",
-  "/index.html",
-  "/css/style.css",
-  "/js/icons.js",
-  "/js/optimizer.js",
-  "/js/scanner.js",
-  "/js/firebase-service.js",
-  "/js/app.js",
-  "/manifest.json"
+  "./",
+  "./index.html",
+  "./css/style.css",
+  "./js/env.js",
+  "./js/icons.js",
+  "./js/optimizer.js",
+  "./js/scanner.js",
+  "./js/firebase-service.js",
+  "./js/app.js",
+  "./manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -44,37 +45,38 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        // Return cached and update in background
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          })
-          .catch(() => {});
-        return cached;
-      }
-
-      return fetch(event.request)
+  // Network-first for navigation requests so users always get the freshest version when online
+  if (event.request.mode === "navigate" || event.request.headers.get("accept")?.includes("text/html")) {
+    event.respondWith(
+      fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, clone);
-            });
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
           return networkResponse;
         })
         .catch(() => {
-          if (event.request.headers.get("accept")?.includes("text/html")) {
-            return caches.match("/index.html");
+          return caches.match("./index.html") || caches.match("/");
+        })
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for static assets
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
-        });
+          return networkResponse;
+        })
+        .catch(() => cached);
+
+      return cached || fetchPromise;
     })
   );
 });

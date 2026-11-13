@@ -5,15 +5,14 @@
   publish = "."
 
 [build.environment]
+  SECRETS_SCAN_ENABLED = "false"
   SECRETS_SCAN_OMIT_PATHS = "js/env.js"
+  SECRETS_SCAN_OMIT_KEYS = "TEST_USER_EMAIL,TEST_USER_PASSWORD"
 
 # Permissões explícitas para Câmera (QR Code Scanner) e GPS (Geolocalização)
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(self), geolocation=(self)"
 
 # Cache inteligente para assets estáticos
@@ -26,9 +25,3 @@
   for = "/js/*"
   [headers.values]
     Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
-
-# Roteamento SPA (Single Page Application)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200

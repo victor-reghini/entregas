@@ -656,6 +656,20 @@
       app.closeModal('modalSettings');
       app.showToast('Configurações do Firebase salvas!');
     }
+
+    // Exposição global garantida para cliques inline
+    window.handleEmailLogin = handleEmailLogin;
+    window.handleEmailRegister = handleEmailRegister;
+    window.handleGoogleLogin = handleGoogleLogin;
+    window.handleLogout = handleLogout;
+    window.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
+    if (window.app) {
+      window.app.handleEmailLogin = handleEmailLogin;
+      window.app.handleEmailRegister = handleEmailRegister;
+      window.app.handleGoogleLogin = handleGoogleLogin;
+      window.app.handleLogout = handleLogout;
+      window.app.handleSaveFirebaseConfig = handleSaveFirebaseConfig;
+    }
   </script>
 </body>
 </html>

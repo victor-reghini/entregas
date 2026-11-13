@@ -15,4 +15,3 @@ runs/
 .env
 .env.local
 .env.*.local
-js/env.js

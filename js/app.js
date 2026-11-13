@@ -494,8 +494,14 @@
     const container = document.getElementById("packageItemsContainer");
     container.innerHTML = stop.items
       .map((it, idx) => {
-        const res = state.results[it.tn] || { status: "delivered", reason: "" };
-        const isDelivered = res.status === "delivered";
+        const res = state.results[it.tn] || { status: "pending", reason: "" };
+        const status = res.status || "pending";
+        const isDelivered = status === "delivered";
+        const isFailed = status === "failed";
+        const isPending = status === "pending";
+
+        const badgeClass = isDelivered ? "badge-success" : (isFailed ? "badge-danger" : "badge-warning");
+        const badgeLabel = isDelivered ? "Entregue" : (isFailed ? "Não Entregue" : "Pendente");
 
         return `
         <div class="package-item">
@@ -505,22 +511,27 @@
               <button type="button" class="btn btn-outline btn-sm" style="width:auto; padding:3px 7px; font-size:0.72rem;" onclick="app.sendWhatsAppMessage('${it.tn}')" title="Avisar cliente no WhatsApp">
                 ${renderIcon("phone", 12)} WhatsApp
               </button>
-              <span class="badge ${isDelivered ? "badge-success" : "badge-warning"}">
-                ${isDelivered ? "Entregue" : "Pendente"}
+              <span class="badge ${badgeClass}">
+                ${badgeLabel}
               </span>
             </div>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
+          
+          <!-- Seletor de 3 Estados: Entregue, Pendente e Não Entregue (Controle Opcional) -->
           <div class="status-toggles">
             <button type="button" class="status-opt-btn ${isDelivered ? "active-ok" : ""}" onclick="app.setItemStatus('${it.tn}', 'delivered')">
-              ${renderIcon("check", 16)} Entregue
+              ${renderIcon("check", 14)} Entregue
             </button>
-            <button type="button" class="status-opt-btn ${!isDelivered ? "active-fail" : ""}" onclick="app.setItemStatus('${it.tn}', 'failed')">
-              ${renderIcon("x", 16)} Não Entregue
+            <button type="button" class="status-opt-btn ${isPending ? "active-pending" : ""}" onclick="app.setItemStatus('${it.tn}', 'pending')">
+              ${renderIcon("package", 14)} Pendente
+            </button>
+            <button type="button" class="status-opt-btn ${isFailed ? "active-fail" : ""}" onclick="app.setItemStatus('${it.tn}', 'failed')">
+              ${renderIcon("x", 14)} Falha
             </button>
           </div>
 
-          <div class="${!isDelivered ? "" : "hidden"}" style="margin-top:8px;">
+          <div class="${isFailed ? "" : "hidden"}" style="margin-top:8px;">
             <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:4px;">Motivo do Insucesso:</div>
             <div class="reason-tags-grid">
               ${SPX_FAIL_REASONS.map(
@@ -546,38 +557,40 @@
       .join("");
   }
 
-  function markArrived() {
+  function markArrived(isAuto = false) {
     state.arrivedCurrent = true;
-    const stop = state.route.stops[state.activeStopIdx];
-
-    // Pre-select 'delivered' for all items at this stop for 1-tap confirmation
-    stop.items.forEach((it) => {
-      if (!state.results[it.tn]) {
-        state.results[it.tn] = {
-          status: "delivered",
-          reason: "",
-          time: new Date().toLocaleTimeString("pt-BR")
-        };
-      }
-    });
-
     saveState();
     renderCurrentStopView();
-    document.getElementById("stopChecklistBox").scrollIntoView({ behavior: "smooth" });
+    const checklistBox = document.getElementById("stopChecklistBox");
+    if (checklistBox) {
+      checklistBox.classList.remove("hidden");
+      checklistBox.scrollIntoView({ behavior: "smooth" });
+    }
+    if (isAuto) {
+      playSuccessChime();
+      showToast("📍 Chegada detectada via GPS! Lista de pacotes aberta.");
+    }
   }
 
-  function setItemStatus(tn, status) {
-    const prev = state.results[tn] || { reason: "" };
+  function setItemStatus(tn, targetStatus) {
+    const prev = state.results[tn] || { status: "pending", reason: "" };
+    // If clicking the status that is already active, return to pending
+    const newStatus = (prev.status === targetStatus && targetStatus !== "pending") ? "pending" : targetStatus;
+
     state.results[tn] = {
-      status,
-      reason: status === "delivered" ? "" : (prev.reason || "Cliente Ausente"),
+      status: newStatus,
+      reason: newStatus === "failed" ? (prev.reason || "Cliente Ausente") : "",
       time: new Date().toLocaleTimeString("pt-BR")
     };
-    if (status === "delivered") {
+
+    if (newStatus === "delivered") {
       playSuccessChime();
-    } else {
+    } else if (newStatus === "failed") {
       playWarningChime();
+    } else {
+      if (navigator.vibrate) navigator.vibrate(20);
     }
+
     saveState();
     const stop = state.route.stops[state.activeStopIdx];
     renderPackageChecklist(stop);
@@ -596,8 +609,10 @@
 
   function confirmStopAndNext() {
     const stop = state.route.stops[state.activeStopIdx];
+    // Se o entregador apenas confirmar sem marcar, o status de entrega não é obrigatório
+    // Os pendentes são marcados como entregues por praticidade
     stop.items.forEach((it) => {
-      if (!state.results[it.tn]) {
+      if (!state.results[it.tn] || state.results[it.tn].status === "pending") {
         state.results[it.tn] = { status: "delivered", reason: "", time: new Date().toLocaleTimeString("pt-BR") };
       }
     });
@@ -607,6 +622,7 @@
     if (state.activeStopIdx < state.route.stops.length - 1) {
       state.activeStopIdx += 1;
       state.arrivedCurrent = false;
+      state.autoArrivedStopId = null;
       saveState();
       renderCurrentStopView();
       if (state.activeTab === "all") {
@@ -891,18 +907,40 @@
     const pill = document.getElementById("gpsDistancePill");
     const textEl = document.getElementById("gpsDistanceText");
 
+    // Proximidade <= 65m da parada ativa aciona automaticamente a chegada
     if (dist <= 65) {
-      pill.classList.add("gps-near");
-      textEl.textContent = `Você chegou! Distância: ${dist}m`;
+      if (pill) pill.classList.add("gps-near");
+      if (textEl) textEl.textContent = `📍 Você chegou! (${dist}m)`;
       if (!state.arrivedCurrent && state.autoArrivedStopId !== stop.id) {
         state.autoArrivedStopId = stop.id;
-        markArrived();
+        markArrived(true);
       }
-    } else {
-      pill.classList.remove("gps-near");
-      const distStr = dist >= 1000 ? `${(dist / 1000).toFixed(2)} km` : `${dist} m`;
-      textEl.textContent = `Distância até parada #${stop.id}: ${distStr}`;
+      return;
     }
+
+    // Identificação de chegada em outra parada da rota (caso o entregador entregue em ordem alternativa)
+    for (let i = 0; i < state.route.stops.length; i++) {
+      if (i === state.activeStopIdx) continue;
+      const otherStop = state.route.stops[i];
+      const hasPending = otherStop.items.some(
+        (it) => !state.results[it.tn] || state.results[it.tn].status === "pending"
+      );
+      if (!hasPending) continue;
+
+      const otherDist = Math.round(RouteOptimizer.haversineMeters(lat, lon, otherStop.lat, otherStop.lon));
+      if (otherDist <= 45) {
+        state.activeStopIdx = i;
+        state.autoArrivedStopId = otherStop.id;
+        if (pill) pill.classList.add("gps-near");
+        if (textEl) textEl.textContent = `📍 Chegou na Parada #${otherStop.id}! (${otherDist}m)`;
+        markArrived(true);
+        return;
+      }
+    }
+
+    if (pill) pill.classList.remove("gps-near");
+    const distStr = dist >= 1000 ? `${(dist / 1000).toFixed(2)} km` : `${dist} m`;
+    if (textEl) textEl.textContent = `Distância até parada #${stop.id}: ${distStr}`;
   }
 
   // --- REPORT SCREEN ---
@@ -1339,7 +1377,7 @@
 
     // PWA Service Worker & Online detection
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js").catch(() => {});
     }
     window.addEventListener("online", updateOnlineStatus);
     window.addEventListener("offline", updateOnlineStatus);

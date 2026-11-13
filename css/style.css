@@ -633,23 +633,23 @@ main.app-main {
 
 .status-toggles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
 
 .status-opt-btn {
-  padding: 8px;
+  padding: 8px 4px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   transition: all 0.15s ease;
 }
 
@@ -657,6 +657,12 @@ main.app-main {
   background: var(--success-bg);
   border-color: var(--success);
   color: var(--success-text);
+}
+
+.status-opt-btn.active-pending {
+  background: var(--warning-bg);
+  border-color: var(--warning);
+  color: var(--warning-text);
 }
 
 .status-opt-btn.active-fail {
