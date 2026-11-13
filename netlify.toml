@@ -4,6 +4,9 @@
   command = "node scripts/inject-env.js"
   publish = "."
 
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = "js/env.js"
+
 # Permissões explícitas para Câmera (QR Code Scanner) e GPS (Geolocalização)
 [[headers]]
   for = "/*"
