@@ -98,6 +98,28 @@
         const parsed = JSON.parse(saved);
         if (parsed.route && parsed.route.stops && parsed.route.stops.length > 0) {
           state.route = parsed.route;
+          if (!state.route.totalDistinctAddresses || !state.route.estimatedDurationStr) {
+            let totalDist = 0;
+            state.route.stops.forEach((s) => {
+              if (typeof s.distinctAddresses === "undefined") {
+                s.items.forEach((it) => {
+                  if (!it.apartmentInfo) {
+                    it.apartmentInfo = RouteOptimizer.extractApartmentInfo(it.complement, it.address);
+                  }
+                });
+                s.distinctAddresses = RouteOptimizer.countDistinctAddresses(s.items);
+                s.estimatedMinutes = s.distinctAddresses * 3;
+              }
+              totalDist += s.distinctAddresses || 1;
+            });
+            state.route.totalDistinctAddresses = totalDist;
+            state.route.serviceMinutes = totalDist * 3;
+            if (typeof state.route.transitMinutes === "undefined") {
+              state.route.transitMinutes = Math.max(0, (state.route.stops.length - 1) * 2);
+            }
+            state.route.estimatedMinutes = state.route.serviceMinutes + state.route.transitMinutes;
+            state.route.estimatedDurationStr = RouteOptimizer.formatDuration(state.route.estimatedMinutes);
+          }
           state.started = parsed.started || false;
           state.finished = parsed.finished || false;
           state.activeStopIdx = parsed.activeStopIdx || 0;
@@ -307,8 +329,18 @@
     summaryBox.classList.remove("hidden");
 
     document.getElementById("statTotalStops").textContent = state.route.stops.length;
+    const statAddrs = document.getElementById("statTotalAddresses");
+    if (statAddrs) statAddrs.textContent = state.route.totalDistinctAddresses || state.route.stops.length;
     document.getElementById("statTotalPackages").textContent = state.route.totalPackages;
-    document.getElementById("statStreetsCount").textContent = state.route.streetsCount;
+    const statTime = document.getElementById("statEstimatedTime");
+    if (statTime) statTime.textContent = state.route.estimatedDurationStr || `${((state.route.totalDistinctAddresses || state.route.stops.length) * 3)} min`;
+    const statTimeSub = document.getElementById("statEstimatedTimeSub");
+    if (statTimeSub) {
+      const addrs = state.route.totalDistinctAddresses || state.route.stops.length;
+      const sMin = state.route.serviceMinutes || (addrs * 3);
+      const tMin = state.route.transitMinutes || 0;
+      statTimeSub.textContent = `⏱️ ${addrs} endereços (3 min/end = ${sMin}m) + trânsito (${tMin}m)`;
+    }
 
     const btnFullRoute = document.getElementById("btnOpenFullRouteDirect");
     if (btnFullRoute) {
@@ -317,15 +349,24 @@
 
     listContainer.innerHTML = state.route.stops
       .map(
-        (s) => `
+        (s) => {
+          const aptSub = (s.distinctAddresses && s.distinctAddresses > 1)
+            ? `<div class="meta-text" style="font-size:0.75rem; color:var(--info, #0284c7);">${s.distinctAddresses} apts/endereços • ~${s.distinctAddresses * 3} min</div>`
+            : `<div class="meta-text" style="font-size:0.75rem;">~${(s.distinctAddresses || 1) * 3} min</div>`;
+
+          return `
       <div class="stop-row-card" style="padding:8px 12px; margin-bottom:4px;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span class="stop-idx-badge" style="width:26px; height:26px; font-size:0.75rem;">#${s.id}</span>
-          <span style="font-weight:700; font-size:0.85rem;">${s.title}</span>
+          <div>
+            <div style="font-weight:700; font-size:0.85rem;">${s.title}</div>
+            ${aptSub}
+          </div>
         </div>
         <span class="badge" style="font-size:0.75rem;">${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}</span>
       </div>
-    `
+    `;
+        }
       )
       .join("");
   }
@@ -345,7 +386,9 @@
     document.getElementById("currentStopCounter").innerHTML = `
       ${renderIcon("mapPin", 14)} PARADA ${stop.id} DE ${state.route.stops.length}
     `;
-    document.getElementById("currentStopPkgCount").textContent = `${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}`;
+    const stopAddresses = stop.distinctAddresses || 1;
+    const addrLabel = stopAddresses > 1 ? ` • ${stopAddresses} apts (~${stopAddresses * 3} min)` : ` (~${stopAddresses * 3} min)`;
+    document.getElementById("currentStopPkgCount").textContent = `${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}${addrLabel}`;
     document.getElementById("currentStopTitle").textContent = stop.title;
     document.getElementById("currentStopMeta").textContent = `${stop.bairro} • ${stop.city} - CEP ${stop.zipcode}`;
 
@@ -409,7 +452,9 @@
       const nxt = state.route.stops[state.activeStopIdx + 1];
       nextBox.classList.remove("hidden");
       document.getElementById("nextStopTitle").textContent = `#${nxt.id} ${nxt.title}`;
-      document.getElementById("nextStopDetails").textContent = `${nxt.items.length} ${nxt.items.length > 1 ? "pacotes" : "pacote"} • ${nxt.bairro}`;
+      const nxtAddresses = nxt.distinctAddresses || 1;
+      const nxtApt = nxtAddresses > 1 ? ` • ${nxtAddresses} apts (~${nxtAddresses * 3} min)` : ` (~${nxtAddresses * 3} min)`;
+      document.getElementById("nextStopDetails").textContent = `${nxt.items.length} ${nxt.items.length > 1 ? "pacotes" : "pacote"}${nxtApt} • ${nxt.bairro}`;
     } else {
       nextBox.classList.add("hidden");
     }
@@ -502,10 +547,17 @@
         const badgeClass = isDelivered ? "badge-success" : (isFailed ? "badge-danger" : "badge-warning");
         const badgeLabel = isDelivered ? "Entregue" : (isFailed ? "Não Entregue" : "Pendente");
 
+        const aptTag = (it.apartmentInfo && it.apartmentInfo.hasApartment)
+          ? `<span class="badge" style="background:rgba(238,77,45,0.12); color:var(--primary); font-weight:800; font-size:0.75rem; border:1px solid rgba(238,77,45,0.3);">🏢 ${it.apartmentInfo.displayLabel}</span>`
+          : "";
+
         return `
         <div class="package-item">
           <div class="package-item-header">
-            <span class="tn-code">#${idx + 1} • ${it.tn}</span>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <span class="tn-code">#${idx + 1} • ${it.tn}</span>
+              ${aptTag}
+            </div>
             <span class="badge ${badgeClass}">
               ${badgeLabel}
             </span>
@@ -708,6 +760,7 @@
         const isActive = idx === state.activeStopIdx;
         const allDelivered = s.items.every((it) => state.results[it.tn] && state.results[it.tn].status === "delivered");
         const isDone = idx < state.activeStopIdx || allDelivered;
+        const aptSummary = s.distinctAddresses > 1 ? ` • ${s.distinctAddresses} apts (~${s.distinctAddresses * 3} min)` : ` (~${(s.distinctAddresses || 1) * 3} min)`;
 
         return `
         <div class="stop-row-card ${isActive ? "active-stop" : ""} ${isDone && !isActive ? "done-stop" : ""}" onclick="app.jumpToStop(${idx})">
@@ -717,7 +770,7 @@
             </div>
             <div>
               <div style="font-weight:700; font-size:0.9rem;">${s.title}</div>
-              <div class="meta-text">${s.bairro} • ${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}</div>
+              <div class="meta-text">${s.bairro} • ${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}${aptSummary}</div>
             </div>
           </div>
           <div style="text-align:right;">
@@ -749,14 +802,29 @@
   function showPackageModal(result) {
     const stopNumEl = document.getElementById("modalScanStopNumber");
     const orderEl = document.getElementById("modalScanPackageOrder");
+    const aptEl = document.getElementById("modalScanApartment");
     const addrEl = document.getElementById("modalScanAddress");
     const compEl = document.getElementById("modalScanComplement");
     const tnEl = document.getElementById("modalScanTnCode");
 
     if (stopNumEl) stopNumEl.textContent = `PARADA #${result.stop.id}`;
     if (orderEl) orderEl.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
+    if (aptEl) {
+      if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+        aptEl.textContent = `🏢 ${result.item.apartmentInfo.displayLabel}`;
+        aptEl.classList.remove("hidden");
+      } else {
+        aptEl.classList.add("hidden");
+      }
+    }
     if (addrEl) addrEl.textContent = result.stop.title;
-    if (compEl) compEl.textContent = result.item.complement ? `Complemento: ${result.item.complement}` : "Sem complemento";
+    if (compEl) {
+      if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+        compEl.innerHTML = `<span style="display:inline-block; background:rgba(238,77,45,0.12); color:var(--primary); padding:2px 8px; border-radius:4px; font-weight:800; font-size:0.85rem; margin-bottom:4px;">🏢 ${result.item.apartmentInfo.displayLabel}</span><br>Complemento: ${result.item.complement || "Sem complemento"}`;
+      } else {
+        compEl.textContent = result.item.complement ? `Complemento: ${result.item.complement}` : "Sem complemento";
+      }
+    }
     if (tnEl) tnEl.textContent = result.item.tn;
 
     // Atualiza também o cartão inferior para conferência rápida
@@ -771,7 +839,13 @@
       if (cardStop) cardStop.textContent = `PARADA #${result.stop.id}`;
       if (cardOrder) cardOrder.textContent = `Pacote #${result.item.seq} de ${state.route.totalPackages}`;
       if (cardAddr) cardAddr.textContent = result.stop.title;
-      if (cardComp) cardComp.textContent = result.item.complement || "";
+      if (cardComp) {
+        if (result.item.apartmentInfo && result.item.apartmentInfo.hasApartment) {
+          cardComp.textContent = `🏢 ${result.item.apartmentInfo.displayLabel} • ${result.item.complement}`;
+        } else {
+          cardComp.textContent = result.item.complement || "";
+        }
+      }
       if (cardTn) cardTn.textContent = result.item.tn;
     }
 
@@ -1225,13 +1299,18 @@
       .filter((d) => d.status === "failed")
       .map((d) => `• ${d.tn} (${d.address}): ${d.reason || "Não visitado"}`);
 
+    const estTime = state.route && state.route.estimatedDurationStr
+      ? `⏱️ Tempo Estimado: ${state.route.estimatedDurationStr} (${state.route.totalDistinctAddresses || state.route.stops.length} endereços a 3 min/end)`
+      : "";
+
     const text = [
       `📦 *ORGANIZA ENTREGAS — RELATÓRIO DO DIA*`,
       `📅 Data: ${new Date().toLocaleDateString("pt-BR")}`,
+      estTime,
       `✅ Pacotes Entregues: ${summary.deliveredCount} / ${summary.totalPackages} (${summary.successRate}%)`,
       `❌ Não Entregues: ${summary.failedCount}`,
       fails.length > 0 ? `\n*Pendências:*\n${fails.join("\n")}` : `\n🎉 100% de sucesso!`
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
       showToast("Resumo da rota copiado!");

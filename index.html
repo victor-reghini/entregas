@@ -187,13 +187,20 @@
             <div class="stat-lbl">Paradas Únicas</div>
           </div>
           <div class="stat-box">
+            <div class="stat-val" id="statTotalAddresses" style="color:var(--info, #0284c7);">0</div>
+            <div class="stat-lbl">Endereços / Apts</div>
+          </div>
+          <div class="stat-box">
             <div class="stat-val" id="statTotalPackages">0</div>
             <div class="stat-lbl">Pacotes Totais</div>
           </div>
           <div class="stat-box">
-            <div class="stat-val" id="statStreetsCount">0</div>
-            <div class="stat-lbl">Ruas Mapeadas</div>
+            <div class="stat-val" id="statEstimatedTime" style="color:var(--warning-text, #f59e0b);">0h 00m</div>
+            <div class="stat-lbl">Tempo Estimado</div>
           </div>
+        </div>
+        <div id="statEstimatedTimeSub" class="meta-text" style="text-align:center; margin-top:-6px; margin-bottom:12px; font-size:0.75rem;">
+          ⏱️ 3 min por endereço/apartamento + deslocamento
         </div>
 
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
@@ -542,7 +549,10 @@
 
       <div style="text-align:center; padding:4px 0;">
         <div class="scan-big-number" id="modalScanStopNumber">PARADA #--</div>
-        <div class="badge badge-primary" style="font-size:0.9rem; padding:4px 12px; display:inline-block;" id="modalScanPackageOrder">Pacote #-- de --</div>
+        <div style="display:flex; justify-content:center; align-items:center; gap:6px; flex-wrap:wrap; margin-top:2px;">
+          <div class="badge badge-primary" style="font-size:0.9rem; padding:4px 12px;" id="modalScanPackageOrder">Pacote #-- de --</div>
+          <div id="modalScanApartment" class="badge hidden" style="font-size:0.9rem; padding:4px 12px; background:rgba(238,77,45,0.15); color:var(--primary); font-weight:800; border:1px solid rgba(238,77,45,0.3);"></div>
+        </div>
       </div>
 
       <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-top:4px;">
