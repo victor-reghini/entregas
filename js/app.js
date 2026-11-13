@@ -58,6 +58,7 @@
     localStorage.setItem(THEME_KEY, state.theme);
     document.documentElement.setAttribute("data-theme", state.theme);
     updateThemeUI();
+    closeDropdown();
     showToast(state.theme === "dark" ? "Tema Escuro ativado" : "Tema Claro ativado");
   }
 
@@ -1733,6 +1734,9 @@
     // Menu Actions
     const btnLogin = document.getElementById("btnHeaderLogin");
     if (btnLogin) btnLogin.addEventListener("click", openAuthModal);
+
+    const menuInstall = document.getElementById("menuItemInstallApp");
+    if (menuInstall) menuInstall.addEventListener("click", installPwa);
 
     const menuHist = document.getElementById("menuItemHistory");
     if (menuHist) menuHist.addEventListener("click", openHistoryModal);

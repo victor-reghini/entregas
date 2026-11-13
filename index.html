@@ -20,6 +20,13 @@
   <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png" />
   <title>Organiza Entregas</title>
   
+  <script>
+    try {
+      const savedTheme = localStorage.getItem("spx_theme_preference") || "dark";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    } catch (_) {}
+  </script>
+  
   <!-- Leaflet Map CSS & JS (Local Offline-First) -->
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <script src="vendor/leaflet.js"></script>
@@ -74,21 +81,21 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
-        <button type="button" class="dropdown-item" id="menuItemInstallApp" onclick="app.installPwa()">
+        <button type="button" class="dropdown-item" id="menuItemInstallApp">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
             <span>Instalar Aplicativo</span>
           </div>
         </button>
 
-        <button type="button" class="dropdown-item" id="menuItemHistory" onclick="app.openHistoryModal()">
+        <button type="button" class="dropdown-item" id="menuItemHistory">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Histórico de Rotas</span>
           </div>
         </button>
 
-        <button class="dropdown-item" id="menuItemTheme" onclick="app.toggleTheme()">
+        <button type="button" class="dropdown-item" id="menuItemTheme">
           <div class="dropdown-item-content">
             <span id="menuThemeIcon">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -99,7 +106,7 @@
 
         <div id="menuAuthActionSection" class="hidden">
           <div class="dropdown-divider"></div>
-          <button class="dropdown-item dropdown-item-danger" id="menuItemLogout" onclick="app.logout()">
+          <button type="button" class="dropdown-item dropdown-item-danger" id="menuItemLogout">
             <div class="dropdown-item-content">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
               <span>Sair da Conta</span>

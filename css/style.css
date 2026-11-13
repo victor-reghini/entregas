@@ -3,7 +3,8 @@
    Themes: Neutral Gray Dark Mode (no blues/purples) & Shopee Orange Light Mode
    ========================================================================== */
 
-:root {
+:root,
+[data-theme="light"] {
   /* Light Theme Default */
   --bg: #f8f9fa;
   --surface: #ffffff;
