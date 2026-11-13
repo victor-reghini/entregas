@@ -1,0 +1,18 @@
+# Antigravity
+.cli-runner
+.cursor/
+.agents/
+.github/
+.windsurfrules
+.clinerules
+.cursorrules
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+runs/
+
+# Environment Variables & Generated Secrets
+.env
+.env.local
+.env.*.local
+js/env.js
