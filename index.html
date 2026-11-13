@@ -7,11 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="manifest.json" />
-  <title>SPX Express — Rota Otimizada Shopee</title>
+  <title>SPX Rotas — Entregas Shopee Express</title>
   
   <!-- Leaflet Map CSS & JS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+  <!-- SheetJS para ler planilhas XLSX / XLS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <!-- HTML5 QR Code & Barcode Scanner -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -25,28 +28,68 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <!-- HEADER -->
+  <!-- HEADER COMPACTO MOBILE-FIRST -->
   <header class="app-header">
     <div class="brand-wrap">
       <span class="shopee-badge">SPX</span>
-      <div class="header-titles">
-        <h1>Rotas Shopee Express</h1>
-        <div class="sub" id="headerSubtitle">Carregando rota...</div>
-      </div>
+      <span class="brand-title">Rotas</span>
     </div>
+
     <div class="header-actions">
-      <span class="badge badge-primary" id="headerProgressBadge">0 pacotes</span>
-      <button class="icon-btn" id="btnToggleTheme" aria-label="Alternar Tema"></button>
-      <button class="icon-btn" id="btnOpenHistory" title="Histórico de Rotas" aria-label="Histórico">
-        <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <!-- Badge de progresso (exibido apenas quando há rota carregada) -->
+      <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
+      
+      <!-- Botão de Login (visível APENAS quando deslogado) -->
+      <button class="btn btn-primary header-login-btn" id="btnHeaderLogin">
+        Entrar
       </button>
-      <button class="icon-btn" id="btnOpenAuth" title="Login do Entregador" aria-label="Login">
-        <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+
+      <!-- Botão do Menu da Conta (Dropdown) -->
+      <button class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
+        <span id="userAvatarText" class="user-avatar">?</span>
+        <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
       </button>
-      <span class="badge" id="headerUserBadge" style="display:none; font-size:0.75rem;"></span>
-      <button class="icon-btn" id="btnOpenSettings" title="Configurações Firebase" aria-label="Configurações">
-        <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-      </button>
+
+      <!-- Menu Dropdown Flutuante -->
+      <div id="accountDropdownMenu" class="account-dropdown hidden">
+        <div class="dropdown-user-info" id="menuUserInfoBox">
+          <div class="dropdown-user-name" id="menuUserName">Visitante</div>
+          <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
+        </div>
+
+        <button class="dropdown-item" id="menuItemHistory">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span>Histórico de Rotas</span>
+          </div>
+        </button>
+
+        <button class="dropdown-item" id="menuItemTheme">
+          <div class="dropdown-item-content">
+            <span id="menuThemeIcon">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </span>
+            <span id="menuThemeLabel">Tema Claro</span>
+          </div>
+        </button>
+
+        <button class="dropdown-item" id="menuItemSettings">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Configurações</span>
+          </div>
+        </button>
+
+        <div id="menuAuthActionSection" class="hidden">
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item dropdown-item-danger" id="menuItemLogout">
+            <div class="dropdown-item-content">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+              <span>Sair da Conta</span>
+            </div>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -68,30 +111,26 @@
         Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da numeração.
       </p>
 
-      <!-- Opções de Entrada -->
-      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
-        <label class="btn btn-outline" style="cursor:pointer;">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="17 8 12 3 7 8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>
-          Selecionar Arquivo CSV / Planilha
-          <input type="file" id="csvFileInput" accept=".csv,text/csv,text/plain" style="display:none;" />
-        </label>
-
-        <button class="btn btn-secondary btn-sm" id="btnLoadSampleRoute">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          Carregar Planilha de Exemplo (101 Pacotes - Maringá)
-        </button>
-
-        <details style="font-size:0.82rem; color:var(--text-muted); cursor:pointer;">
-          <summary style="font-weight:700; padding:4px 0;">Ou colar texto da planilha diretamente</summary>
-          <div style="margin-top:8px; display:flex; flex-direction:column; gap:8px;">
-            <textarea id="csvPasteArea" class="input-field" rows="4" placeholder="Cole aqui o texto CSV da planilha SPX..."></textarea>
-            <button class="btn btn-primary btn-sm" id="btnParsePastedCSV">Processar Texto Colado</button>
-          </div>
-        </details>
+      <!-- Dropzone para XLSX ou CSV -->
+      <div class="upload-dropzone" id="uploadDropzone">
+        <input type="file" id="spreadsheetFileInput" accept=".xlsx,.xls,.csv,text/csv,text/plain" style="display:none;" />
+        <svg class="icon" width="32" height="32" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="17 8 12 3 7 8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>
+        <div>
+          <div style="font-weight:800; font-size:0.95rem;">Selecionar Planilha (.XLSX ou .CSV)</div>
+          <div class="meta-text" style="font-size:0.78rem;">Toque para escolher ou arraste o arquivo aqui</div>
+        </div>
       </div>
 
+      <details style="font-size:0.82rem; color:var(--text-muted); cursor:pointer; margin-top:10px;">
+        <summary style="font-weight:700; padding:4px 0;">Ou colar dados em formato texto / CSV</summary>
+        <div style="margin-top:8px; display:flex; flex-direction:column; gap:8px;">
+          <textarea id="csvPasteArea" class="input-field" rows="4" placeholder="Cole aqui o texto exportado da planilha SPX..."></textarea>
+          <button class="btn btn-primary btn-sm" id="btnParsePastedCSV">Processar Texto Colado</button>
+        </div>
+      </details>
+
       <!-- Resumo da Rota Carregada -->
-      <div id="homeRouteSummary" class="hidden">
+      <div id="homeRouteSummary" class="hidden" style="margin-top:16px;">
         <div class="stat-grid">
           <div class="stat-box">
             <div class="stat-val" id="statTotalStops" style="color:var(--primary);">0</div>
@@ -157,7 +196,7 @@
           </div>
 
           <h2 class="title-lg" id="currentStopTitle">Carregando endereço...</h2>
-          <div class="meta-text" id="currentStopMeta">Bairro • Maringá - PR</div>
+          <div class="meta-text" id="currentStopMeta">Bairro • Cidade - UF</div>
 
           <!-- Instruções Especiais -->
           <div id="currentStopNotes" class="note-box hidden"></div>
@@ -442,7 +481,7 @@
         <input type="email" id="authEmailInput" class="input-field" placeholder="Seu e-mail..." />
         <input type="password" id="authPassInput" class="input-field" placeholder="Sua senha..." />
         
-        <button class="btn btn-primary" onclick="handleEmailLogin()">
+        <button class="btn btn-primary" id="btnSubmitEmailLogin" onclick="handleEmailLogin()">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           Entrar com E-mail
         </button>
@@ -465,7 +504,7 @@
         </button>
       </div>
       <p class="meta-text">
-        Cole as credenciais do seu projeto Firebase (obtidas em <em>Configurações do Projeto &gt; Seus Aplicativos &gt; SDK Web</em>):
+        Configurações do seu projeto Firebase (sincronização na nuvem):
       </p>
       <div style="display:flex; flex-direction:column; gap:8px;">
         <input type="text" id="cfgApiKey" class="input-field" placeholder="apiKey (ex: AIzaSy...)" />
@@ -480,49 +519,67 @@
     </div>
   </div>
 
+  <!-- Toast Notification Container -->
+  <div id="toastNotice" class="toast-notice hidden"></div>
+
   <!-- Scripts da Aplicação -->
   <script>window.__ENV__ = window.__ENV__ || {};</script>
   <script src="js/env.js"></script>
   <script src="js/icons.js"></script>
-  <script src="js/sample-data.js"></script>
   <script src="js/optimizer.js"></script>
   <script src="js/scanner.js"></script>
   <script src="js/firebase-service.js"></script>
   <script src="js/app.js"></script>
 
   <script>
-    // Handlers para os modais de autenticação e configuração
+    // Handlers para os modais de autenticação e configuração (Sem alertas nativos)
     function handleEmailLogin() {
-      const email = document.getElementById('authEmailInput').value;
+      const email = document.getElementById('authEmailInput').value.trim();
       const pass = document.getElementById('authPassInput').value;
-      if (!email || !pass) { alert('Preencha e-mail e senha'); return; }
+      if (!email || !pass) {
+        app.showToast('Por favor, informe e-mail e senha.');
+        return;
+      }
       FirebaseService.loginEmail(email, pass).then(u => {
-        alert('Login efetuado com sucesso!');
         app.closeModal('modalAuth');
-      }).catch(e => alert('Erro no login: ' + e.message));
+        app.showToast('Conectado como ' + (u.email || u.displayName));
+        app.switchScreen('home');
+      }).catch(e => {
+        app.showToast('Erro no login: ' + e.message);
+      });
     }
 
     function handleEmailRegister() {
-      const email = document.getElementById('authEmailInput').value;
+      const email = document.getElementById('authEmailInput').value.trim();
       const pass = document.getElementById('authPassInput').value;
-      if (!email || !pass) { alert('Preencha e-mail e senha'); return; }
+      if (!email || !pass) {
+        app.showToast('Por favor, informe e-mail e senha.');
+        return;
+      }
       FirebaseService.registerEmail(email, pass).then(u => {
-        alert('Conta criada com sucesso!');
         app.closeModal('modalAuth');
-      }).catch(e => alert('Erro ao criar conta: ' + e.message));
+        app.showToast('Conta criada com sucesso!');
+        app.switchScreen('home');
+      }).catch(e => {
+        app.showToast('Erro ao criar conta: ' + e.message);
+      });
     }
 
     function handleGoogleLogin() {
       FirebaseService.loginGoogle().then(u => {
-        alert('Login Google efetuado!');
         app.closeModal('modalAuth');
-      }).catch(e => alert(e.message));
+        app.showToast('Conectado via Google!');
+        app.switchScreen('home');
+      }).catch(e => {
+        app.showToast('Erro no login Google: ' + e.message);
+      });
     }
 
     function handleLogout() {
       FirebaseService.logout().then(() => {
-        alert('Desconectado com sucesso.');
         app.closeModal('modalAuth');
+        app.showToast('Você saiu da conta.');
+        app.switchScreen('home');
       });
     }
 
@@ -536,8 +593,8 @@
         appId: document.getElementById('cfgAppId').value.trim()
       };
       FirebaseService.setStoredConfig(cfg);
-      alert('Configuração salva! Firebase inicializado.');
       app.closeModal('modalSettings');
+      app.showToast('Configurações do Firebase salvas!');
     }
   </script>
 </body>

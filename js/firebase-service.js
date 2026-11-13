@@ -208,7 +208,7 @@ const FirebaseService = (function () {
       deliveredCount: routeSummary.deliveredCount || 0,
       failedCount: routeSummary.failedCount || 0,
       successRate: Math.round(((routeSummary.deliveredCount || 0) / (routeSummary.totalPackages || 1)) * 100),
-      region: routeSummary.region || "Zona 07 • Maringá",
+      region: routeSummary.region || "Rota SPX",
       details: routeSummary.details || []
     };
 

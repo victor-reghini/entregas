@@ -1,9 +1,15 @@
 // Main Application Logic - SPX Express Route Delivery System
-// Mobile First, Modular, Offline-First with Firebase Sync
+// Mobile First, Modular, Clean Header Dropdown, XLSX Support, User Data Isolation
 
 (function () {
-  const STORAGE_KEY = "spx_active_route_v2";
   const THEME_KEY = "spx_theme_preference";
+
+  // Dynamic storage key scoped to current authenticated user
+  function getStorageKey() {
+    const user = FirebaseService.getUser();
+    const uid = user && !user.isLocal && user.uid ? user.uid : "guest";
+    return `spx_route_${uid}`;
+  }
 
   // Application State
   const state = {
@@ -30,27 +36,44 @@
     }
   };
 
+  // --- TOAST NOTIFICATIONS (No native browser alerts) ---
+  function showToast(msg) {
+    const toast = document.getElementById("toastNotice");
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.remove("hidden");
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => {
+      toast.classList.add("hidden");
+    }, 3200);
+  }
+
   // --- THEME MANAGEMENT ---
   function initTheme() {
     document.documentElement.setAttribute("data-theme", state.theme);
-    updateThemeIcon();
+    updateThemeUI();
   }
 
   function toggleTheme() {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem(THEME_KEY, state.theme);
     document.documentElement.setAttribute("data-theme", state.theme);
-    updateThemeIcon();
+    updateThemeUI();
+    showToast(state.theme === "dark" ? "Tema Escuro ativado" : "Tema Claro ativado");
   }
 
-  function updateThemeIcon() {
-    const btn = document.getElementById("btnToggleTheme");
-    if (!btn) return;
-    btn.innerHTML = state.theme === "dark" ? renderIcon("sun", 18) : renderIcon("moon", 18);
-    btn.title = state.theme === "dark" ? "Alternar para Tema Claro" : "Alternar para Tema Escuro";
+  function updateThemeUI() {
+    const iconContainer = document.getElementById("menuThemeIcon");
+    const label = document.getElementById("menuThemeLabel");
+    if (iconContainer) {
+      iconContainer.innerHTML = state.theme === "dark" ? renderIcon("sun", 16) : renderIcon("moon", 16);
+    }
+    if (label) {
+      label.textContent = state.theme === "dark" ? "Tema Claro" : "Tema Escuro";
+    }
   }
 
-  // --- STATE PERSISTENCE ---
+  // --- STATE PERSISTENCE (PER-USER DATA ISOLATION) ---
   function saveState() {
     try {
       const serialized = {
@@ -63,7 +86,7 @@
         results: state.results,
         route: state.route
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(serialized));
+      localStorage.setItem(getStorageKey(), JSON.stringify(serialized));
     } catch (e) {
       console.warn("Save state error", e);
     }
@@ -71,7 +94,7 @@
 
   function loadState() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(getStorageKey());
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.route && parsed.route.stops && parsed.route.stops.length > 0) {
@@ -83,18 +106,29 @@
           state.startTime = parsed.startTime || null;
           state.endTime = parsed.endTime || null;
           state.results = parsed.results || {};
+          return;
         }
       }
     } catch (e) {
       console.warn("Load state error", e);
     }
+
+    // Default clean state if no route saved for this user
+    state.route = null;
+    state.started = false;
+    state.finished = false;
+    state.activeStopIdx = 0;
+    state.arrivedCurrent = false;
+    state.startTime = null;
+    state.endTime = null;
+    state.results = {};
   }
 
-  // --- ROUTE GENERATION ---
+  // --- ROUTE GENERATION & FILE PARSING (XLSX, XLS, CSV) ---
   function handleGenerateRouteFromCSV(csvText, useGPS = false, reverse = false) {
     const rows = RouteOptimizer.parseCSV(csvText);
     if (!rows || rows.length === 0) {
-      alert("Nenhum pacote válido encontrado na planilha. Verifique o formato CSV.");
+      showToast("Nenhum pacote válido encontrado na planilha.");
       return;
     }
 
@@ -114,18 +148,47 @@
     state.results = {};
     saveState();
 
-    renderHomePreview();
+    switchScreen("home");
+    showToast(`Rota gerada: ${optimized.stops.length} paradas e ${optimized.totalPackages} pacotes.`);
   }
 
-  function loadSampleRoute() {
-    if (typeof SAMPLE_CSV !== "undefined") {
-      handleGenerateRouteFromCSV(SAMPLE_CSV);
+  function handleFileSelect(file) {
+    if (!file) return;
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          if (typeof XLSX === "undefined") {
+            showToast("Biblioteca XLSX ainda carregando. Tente novamente em alguns segundos.");
+            return;
+          }
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: "array" });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const csvText = XLSX.utils.sheet_to_csv(worksheet);
+          handleGenerateRouteFromCSV(csvText);
+        } catch (err) {
+          showToast("Erro ao processar planilha XLSX.");
+          console.error(err);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // CSV or plain text
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        handleGenerateRouteFromCSV(e.target.result);
+      };
+      reader.readAsText(file, "UTF-8");
     }
   }
 
   function startActiveRoute() {
     if (!state.route || state.route.stops.length === 0) {
-      alert("Carregue uma planilha antes de iniciar.");
+      showToast("Carregue uma planilha antes de iniciar.");
       return;
     }
     state.started = true;
@@ -203,10 +266,12 @@
   }
 
   function updateHeader() {
+    const badge = document.getElementById("headerProgressBadge");
+    const progressBar = document.getElementById("progressBar");
+
     if (!state.route) {
-      document.getElementById("headerSubtitle").textContent = "Nenhuma rota carregada";
-      document.getElementById("headerProgressBadge").textContent = "0 pacotes";
-      document.getElementById("progressBar").style.width = "0%";
+      badge.classList.add("hidden");
+      progressBar.style.width = "0%";
       return;
     }
 
@@ -214,26 +279,23 @@
     const done = Object.keys(state.results).length;
     const pct = Math.round((done / total) * 100);
 
-    document.getElementById("headerSubtitle").textContent = `${state.route.stops.length} paradas • ${total} pacotes`;
-    document.getElementById("headerProgressBadge").textContent = `${done}/${total} (${pct}%)`;
-    document.getElementById("progressBar").style.width = `${pct}%`;
+    badge.classList.remove("hidden");
+    badge.textContent = `${done}/${total} (${pct}%)`;
+    progressBar.style.width = `${pct}%`;
   }
 
   // --- HOME / SETUP SCREEN ---
   function renderHomePreview() {
-    const previewBox = document.getElementById("homeRouteSummary");
+    const summaryBox = document.getElementById("homeRouteSummary");
     const listContainer = document.getElementById("homePreviewStopsList");
-    const btnStart = document.getElementById("btnStartRoute");
 
     if (!state.route || state.route.stops.length === 0) {
-      previewBox.classList.add("hidden");
+      summaryBox.classList.add("hidden");
       listContainer.innerHTML = "";
-      btnStart.disabled = true;
       return;
     }
 
-    previewBox.classList.remove("hidden");
-    btnStart.disabled = false;
+    summaryBox.classList.remove("hidden");
 
     document.getElementById("statTotalStops").textContent = state.route.stops.length;
     document.getElementById("statTotalPackages").textContent = state.route.totalPackages;
@@ -410,7 +472,6 @@
 
   function confirmStopAndNext() {
     const stop = state.route.stops[state.activeStopIdx];
-    // Ensure all items are accounted for
     stop.items.forEach((it) => {
       if (!state.results[it.tn]) {
         state.results[it.tn] = { status: "delivered", reason: "", time: new Date().toLocaleTimeString("pt-BR") };
@@ -451,11 +512,11 @@
     state.endTime = new Date().toLocaleString("pt-BR");
     saveState();
 
-    // Auto-save to Firebase History
     const summary = getRouteSummary();
     FirebaseService.saveRouteToHistory(summary);
 
     switchScreen("report");
+    showToast("Rota concluída e salva no histórico!");
   }
 
   function getRouteSummary() {
@@ -463,33 +524,35 @@
     let failed = 0;
     const details = [];
 
-    state.route.stops.forEach((s) => {
-      s.items.forEach((it) => {
-        const res = state.results[it.tn] || { status: "failed", reason: "Não visitado" };
-        if (res.status === "delivered") {
-          delivered += 1;
-        } else {
-          failed += 1;
-        }
-        details.push({
-          tn: it.tn,
-          address: it.address,
-          stopId: s.id,
-          status: res.status,
-          reason: res.reason || "",
-          time: res.time || ""
+    if (state.route) {
+      state.route.stops.forEach((s) => {
+        s.items.forEach((it) => {
+          const res = state.results[it.tn] || { status: "failed", reason: "Não visitado" };
+          if (res.status === "delivered") {
+            delivered += 1;
+          } else {
+            failed += 1;
+          }
+          details.push({
+            tn: it.tn || "",
+            address: it.address || "",
+            stopId: s.id || 0,
+            status: res.status || "delivered",
+            reason: res.reason || "",
+            time: res.time || ""
+          });
         });
       });
-    });
+    }
 
     return {
-      startTime: state.startTime,
-      endTime: state.endTime,
-      totalStops: state.route.stops.length,
-      totalPackages: state.route.totalPackages,
+      startTime: state.startTime || "-",
+      endTime: state.endTime || "-",
+      totalStops: state.route ? state.route.stops.length : 0,
+      totalPackages: state.route ? state.route.totalPackages : 0,
       deliveredCount: delivered,
       failedCount: failed,
-      region: state.route.stops[0] ? `${state.route.stops[0].bairro} • ${state.route.stops[0].city}` : "SPX Route",
+      region: state.route && state.route.stops[0] ? `${state.route.stops[0].bairro} • ${state.route.stops[0].city}` : "SPX Route",
       details
     };
   }
@@ -544,7 +607,7 @@
 
   function startScanner() {
     if (!state.route) {
-      alert("Carregue uma rota primeiro.");
+      showToast("Carregue uma rota primeiro.");
       return;
     }
     document.getElementById("scannerStartBtn").classList.add("hidden");
@@ -681,14 +744,14 @@
         state.userCoords = pos.coords;
         updateDistanceUI(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
-      (err) => {
+      () => {
         if (textEl) textEl.textContent = "GPS indisponível. Use o botão Cheguei.";
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
   }
 
-  function updateDistanceUI(lat, lon, accuracy = null) {
+  function updateDistanceUI(lat, lon) {
     if (!state.route || !state.started || state.finished) return;
     const stop = state.route.stops[state.activeStopIdx];
     if (!stop) return;
@@ -778,6 +841,7 @@
     a.download = `relatorio-spx-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    showToast("Relatório CSV baixado!");
   }
 
   function copyWhatsAppReport() {
@@ -795,31 +859,39 @@
     ].join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
-      alert("Resumo formatado para WhatsApp copiado para a área de transferência!");
+      showToast("Resumo para WhatsApp copiado!");
     });
   }
 
   function resetRoute() {
-    if (confirm("Deseja apagar todo o progresso e reiniciar esta rota?")) {
-      localStorage.removeItem(STORAGE_KEY);
-      state.started = false;
-      state.finished = false;
-      state.activeStopIdx = 0;
-      state.arrivedCurrent = false;
-      state.startTime = null;
-      state.endTime = null;
-      state.results = {};
-      switchScreen("home");
-    }
+    localStorage.removeItem(getStorageKey());
+    state.started = false;
+    state.finished = false;
+    state.activeStopIdx = 0;
+    state.arrivedCurrent = false;
+    state.startTime = null;
+    state.endTime = null;
+    state.results = {};
+    state.route = null;
+    switchScreen("home");
+    showToast("Rota reiniciada.");
   }
 
   // --- MODALS & FIREBASE DIALOGS ---
   function openModal(modalId) {
     document.getElementById(modalId).classList.remove("hidden");
+    closeDropdown();
   }
 
   function closeModal(modalId) {
     document.getElementById(modalId).classList.add("hidden");
+  }
+
+  function closeDropdown() {
+    const menu = document.getElementById("accountDropdownMenu");
+    const btn = document.getElementById("btnAccountMenu");
+    if (menu) menu.classList.add("hidden");
+    if (btn) btn.classList.remove("active");
   }
 
   async function openHistoryModal() {
@@ -889,39 +961,67 @@
   // --- BOOTSTRAP ---
   function init() {
     initTheme();
-    loadState();
 
-    // Firebase Auth sync
+    // Firebase Auth sync & User Data Isolation
     FirebaseService.onAuthChange((user) => {
-      const userBadge = document.getElementById("headerUserBadge");
-      const btnAuth = document.getElementById("btnOpenAuth");
-      const loggedView = document.getElementById("authLoggedInView");
-      const loginForm = document.getElementById("authLoginForm");
-      const loggedEmail = document.getElementById("loggedUserEmail");
+      const btnLogin = document.getElementById("btnHeaderLogin");
+      const avatarText = document.getElementById("userAvatarText");
+      const menuName = document.getElementById("menuUserName");
+      const menuEmail = document.getElementById("menuUserEmail");
+      const authSection = document.getElementById("menuAuthActionSection");
 
       if (user && !user.isLocal) {
-        if (userBadge) {
-          userBadge.style.display = "inline-flex";
-          userBadge.textContent = user.displayName || (user.email ? user.email.split("@")[0] : "Entregador");
-          userBadge.className = "badge badge-primary";
-        }
-        if (btnAuth) btnAuth.title = `Conectado: ${user.email}`;
-        if (loggedView) loggedView.classList.remove("hidden");
-        if (loginForm) loginForm.classList.add("hidden");
-        if (loggedEmail) loggedEmail.textContent = user.email || user.displayName || "Entregador Conectado";
+        // User is logged in: HIDE login button, show avatar initial & profile info
+        if (btnLogin) btnLogin.classList.add("hidden");
+        const initial = (user.displayName || user.email || "U").charAt(0).toUpperCase();
+        if (avatarText) avatarText.textContent = initial;
+        if (menuName) menuName.textContent = user.displayName || user.email.split("@")[0];
+        if (menuEmail) menuEmail.textContent = user.email;
+        if (authSection) authSection.classList.remove("hidden");
       } else {
-        if (userBadge) userBadge.style.display = "none";
-        if (btnAuth) btnAuth.title = "Login do Entregador";
-        if (loggedView) loggedView.classList.add("hidden");
-        if (loginForm) loginForm.classList.remove("hidden");
+        // User is guest: SHOW login button, show default guest menu
+        if (btnLogin) btnLogin.classList.remove("hidden");
+        if (avatarText) avatarText.textContent = "?";
+        if (menuName) menuName.textContent = "Visitante";
+        if (menuEmail) menuEmail.textContent = "Não conectado";
+        if (authSection) authSection.classList.add("hidden");
+      }
+
+      // Reload state specifically for this user
+      loadState();
+      if (state.finished) {
+        switchScreen("report");
+      } else if (state.started && state.route) {
+        switchScreen("active");
+        switchTab(state.activeTab || "current");
+      } else {
+        switchScreen("home");
       }
     });
+
     FirebaseService.initFirebase();
 
-    // Setup Event Listeners
-    document.getElementById("btnToggleTheme").addEventListener("click", toggleTheme);
-    document.getElementById("btnOpenHistory").addEventListener("click", openHistoryModal);
-    document.getElementById("btnOpenSettings").addEventListener("click", () => {
+    // Account Dropdown Menu Toggle
+    const btnAccountMenu = document.getElementById("btnAccountMenu");
+    const dropdownMenu = document.getElementById("accountDropdownMenu");
+
+    btnAccountMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdownMenu.classList.toggle("hidden");
+      btnAccountMenu.classList.toggle("active", !dropdownMenu.classList.contains("hidden"));
+    });
+
+    document.addEventListener("click", (e) => {
+      if (dropdownMenu && !dropdownMenu.contains(e.target) && !btnAccountMenu.contains(e.target)) {
+        closeDropdown();
+      }
+    });
+
+    // Menu Actions
+    document.getElementById("btnHeaderLogin").addEventListener("click", () => openModal("modalAuth"));
+    document.getElementById("menuItemHistory").addEventListener("click", openHistoryModal);
+    document.getElementById("menuItemTheme").addEventListener("click", toggleTheme);
+    document.getElementById("menuItemSettings").addEventListener("click", () => {
       const cfg = FirebaseService.getStoredConfig();
       if (cfg) {
         document.getElementById("cfgApiKey").value = cfg.apiKey || "";
@@ -933,41 +1033,47 @@
       }
       openModal("modalSettings");
     });
-    document.getElementById("btnOpenAuth").addEventListener("click", () => {
-      if (window.__ENV__) {
-        const emailInput = document.getElementById("authEmailInput");
-        const passInput = document.getElementById("authPassInput");
-        if (emailInput && !emailInput.value && window.__ENV__.TEST_USER_EMAIL) {
-          emailInput.value = window.__ENV__.TEST_USER_EMAIL;
-        }
-        if (passInput && !passInput.value && window.__ENV__.TEST_USER_PASSWORD) {
-          passInput.value = window.__ENV__.TEST_USER_PASSWORD;
-        }
-      }
-      openModal("modalAuth");
+    document.getElementById("menuItemLogout").addEventListener("click", () => {
+      closeDropdown();
+      FirebaseService.logout().then(() => {
+        showToast("Você saiu da conta.");
+        resetRoute();
+      });
     });
-    document.getElementById("btnOpenMultiBatchModal").addEventListener("click", openMultiBatchModal);
 
-    // CSV File Upload
-    const fileInput = document.getElementById("csvFileInput");
+    // File Upload (XLSX, XLS, CSV)
+    const fileInput = document.getElementById("spreadsheetFileInput");
     fileInput.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        handleGenerateRouteFromCSV(evt.target.result);
-      };
-      reader.readAsText(file, "UTF-8");
+      if (e.target.files && e.target.files.length > 0) {
+        handleFileSelect(e.target.files[0]);
+      }
     });
+
+    // Dropzone Click & Drag/Drop
+    const dropzone = document.getElementById("uploadDropzone");
+    if (dropzone) {
+      dropzone.addEventListener("click", () => fileInput.click());
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("drag-over");
+      });
+      dropzone.addEventListener("dragleave", () => {
+        dropzone.classList.remove("drag-over");
+      });
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("drag-over");
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleFileSelect(e.dataTransfer.files[0]);
+        }
+      });
+    }
 
     // Paste CSV Text
     document.getElementById("btnParsePastedCSV").addEventListener("click", () => {
       const txt = document.getElementById("csvPasteArea").value;
       if (txt.trim()) handleGenerateRouteFromCSV(txt);
     });
-
-    // Sample Route
-    document.getElementById("btnLoadSampleRoute").addEventListener("click", loadSampleRoute);
 
     // Route Actions
     document.getElementById("btnStartRoute").addEventListener("click", startActiveRoute);
@@ -993,20 +1099,7 @@
     document.getElementById("btnCopyWhatsApp").addEventListener("click", copyWhatsAppReport);
     document.getElementById("btnResetRoute").addEventListener("click", resetRoute);
     document.getElementById("btnCenterMap").addEventListener("click", centerMapOnCurrent);
-
-    // Route Startup Check
-    if (state.finished) {
-      switchScreen("report");
-    } else if (state.started && state.route) {
-      switchScreen("active");
-      switchTab(state.activeTab || "current");
-      initGPS();
-    } else if (state.route) {
-      switchScreen("home");
-    } else {
-      loadSampleRoute();
-      switchScreen("home");
-    }
+    document.getElementById("btnOpenMultiBatchModal").addEventListener("click", openMultiBatchModal);
   }
 
   // Expose global app methods
@@ -1019,7 +1112,8 @@
     switchTab,
     initGPS,
     confirmStopAndNext,
-    openMultiBatchModal
+    openMultiBatchModal,
+    showToast
   };
 
   document.addEventListener("DOMContentLoaded", init);
