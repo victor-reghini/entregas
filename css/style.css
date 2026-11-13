@@ -1171,10 +1171,83 @@ main.app-main {
   font-weight: 700;
   border-color: var(--primary);
   color: var(--primary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-install-btn:hover {
   background: var(--primary);
   color: #ffffff;
 }
+
+/* PWA Installation Guide & Banner */
+.pwa-install-banner {
+  background: linear-gradient(135deg, rgba(238, 77, 45, 0.14), rgba(238, 77, 45, 0.05));
+  border: 1.5px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pwa-install-banner-text {
+  font-size: 0.85rem;
+  line-height: 1.35;
+  flex: 1;
+}
+
+.pwa-install-banner-title {
+  font-weight: 800;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.install-modal-card {
+  max-width: 440px;
+}
+
+.install-guide-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin: 10px 0;
+}
+
+.install-guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.install-step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.install-step-text {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
 

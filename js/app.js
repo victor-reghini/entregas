@@ -1546,13 +1546,21 @@
   }
 
   function toggleAccountMenu(e) {
-    if (e && e.stopPropagation) e.stopPropagation();
+    if (e) {
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+    }
     const dropdownMenu = document.getElementById("accountDropdownMenu");
     const btnAccountMenu = document.getElementById("btnAccountMenu");
     if (!dropdownMenu) return;
-    dropdownMenu.classList.toggle("hidden");
-    if (btnAccountMenu) {
-      btnAccountMenu.classList.toggle("active", !dropdownMenu.classList.contains("hidden"));
+
+    const isHidden = dropdownMenu.classList.contains("hidden");
+    if (isHidden) {
+      dropdownMenu.classList.remove("hidden");
+      if (btnAccountMenu) btnAccountMenu.classList.add("active");
+    } else {
+      dropdownMenu.classList.add("hidden");
+      if (btnAccountMenu) btnAccountMenu.classList.remove("active");
     }
   }
 
@@ -1634,15 +1642,27 @@
     const btnAccountMenu = document.getElementById("btnAccountMenu");
     const dropdownMenu = document.getElementById("accountDropdownMenu");
 
-    if (btnAccountMenu && dropdownMenu) {
-      btnAccountMenu.addEventListener("click", toggleAccountMenu);
+    if (btnAccountMenu) {
+      btnAccountMenu.addEventListener("click", (e) => {
+        toggleAccountMenu(e);
+      });
+    }
+
+    if (dropdownMenu) {
+      dropdownMenu.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
     }
 
     document.addEventListener("click", (e) => {
-      if (dropdownMenu && !dropdownMenu.contains(e.target) && btnAccountMenu && !btnAccountMenu.contains(e.target)) {
-        closeDropdown();
+      if (dropdownMenu && !dropdownMenu.classList.contains("hidden")) {
+        if (!dropdownMenu.contains(e.target) && btnAccountMenu && !btnAccountMenu.contains(e.target)) {
+          closeDropdown();
+        }
       }
     });
+
+    updateInstallUiState();
 
     // Menu Actions
     const btnLogin = document.getElementById("btnHeaderLogin");
@@ -1755,23 +1775,56 @@
     if (btnMultiModal) btnMultiModal.addEventListener("click", openMultiBatchModal);
   }
 
-  // --- PWA INSTALLATION PROMPT ---
+  // --- PWA INSTALLATION PROMPT & SMART MOBILE GUIDE ---
   let deferredInstallPrompt = null;
+
+  function isIos() {
+    return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }
+
+  function isStandalone() {
+    return window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true;
+  }
+
+  function updateInstallUiState() {
+    const isApp = isStandalone();
+    const btn = document.getElementById("btnInstallPwa");
+    const banner = document.getElementById("pwaHomeInstallBanner");
+    const menuInstall = document.getElementById("menuItemInstallApp");
+
+    if (isApp) {
+      if (btn) btn.classList.add("hidden");
+      if (banner) banner.classList.add("hidden");
+      if (menuInstall) menuInstall.classList.add("hidden");
+    } else {
+      if (btn) btn.classList.remove("hidden");
+      if (banner) banner.classList.remove("hidden");
+      if (menuInstall) menuInstall.classList.remove("hidden");
+    }
+  }
+
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     deferredInstallPrompt = e;
-    const btn = document.getElementById("btnInstallPwa");
-    if (btn) btn.classList.remove("hidden");
+    updateInstallUiState();
   });
 
   window.addEventListener("appinstalled", () => {
     showToast("Organiza Entregas instalado com sucesso!");
-    const btn = document.getElementById("btnInstallPwa");
-    if (btn) btn.classList.add("hidden");
     deferredInstallPrompt = null;
+    updateInstallUiState();
   });
 
   function installPwa() {
+    closeDropdown();
+
+    if (isStandalone()) {
+      showToast("O aplicativo já está instalado no seu celular!");
+      return;
+    }
+
     if (deferredInstallPrompt) {
       deferredInstallPrompt.prompt();
       deferredInstallPrompt.userChoice.then((choice) => {
@@ -1779,12 +1832,24 @@
           showToast("Instalação iniciada!");
         }
         deferredInstallPrompt = null;
-        const btn = document.getElementById("btnInstallPwa");
-        if (btn) btn.classList.add("hidden");
+        updateInstallUiState();
       });
-    } else {
-      showToast("Toque no menu do navegador e selecione 'Adicionar à tela inicial'");
+      return;
     }
+
+    // Se estiver no iOS / Safari ou o prompt automático não estiver ativo, exibe o modal com passos visuais
+    const guideIos = document.getElementById("installGuideIos");
+    const guideAndroid = document.getElementById("installGuideAndroid");
+
+    if (isIos()) {
+      if (guideIos) guideIos.classList.remove("hidden");
+      if (guideAndroid) guideAndroid.classList.add("hidden");
+    } else {
+      if (guideIos) guideIos.classList.add("hidden");
+      if (guideAndroid) guideAndroid.classList.remove("hidden");
+    }
+
+    openModal("modalInstallApp");
   }
 
   // Expose global app methods

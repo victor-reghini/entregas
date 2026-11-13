@@ -2,12 +2,14 @@
   "name": "Organiza Entregas",
   "short_name": "Organiza Entregas",
   "description": "Organizador e roteirizador de entregas otimizado com suporte offline",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#121212",
   "theme_color": "#ee4d2d",
   "orientation": "portrait",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "icons/icon-192.png",

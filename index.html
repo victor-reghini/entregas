@@ -14,7 +14,10 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png" />
   <title>Organiza Entregas</title>
   
   <!-- Leaflet Map CSS & JS (Local Offline-First) -->
@@ -45,7 +48,7 @@
 
     <div class="header-actions">
       <!-- Botão de Instalar PWA no Celular -->
-      <button class="btn btn-outline header-install-btn hidden" id="btnInstallPwa" onclick="app.installPwa()" aria-label="Instalar App no Celular">
+      <button type="button" class="btn btn-outline header-install-btn" id="btnInstallPwa" onclick="app.installPwa()" aria-label="Instalar App no Celular">
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
         Instalar
       </button>
@@ -54,12 +57,12 @@
       <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
       
       <!-- Botão de Login (visível APENAS quando deslogado) -->
-      <button class="btn btn-primary header-login-btn" id="btnHeaderLogin" onclick="app.openAuthModal()">
+      <button type="button" class="btn btn-primary header-login-btn" id="btnHeaderLogin" onclick="app.openAuthModal()">
         Entrar
       </button>
 
       <!-- Botão do Menu da Conta (Dropdown) -->
-      <button class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true" onclick="app.toggleAccountMenu(event)">
+      <button type="button" class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
         <span id="userAvatarText" class="user-avatar">?</span>
         <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
       </button>
@@ -71,7 +74,14 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
-        <button class="dropdown-item" id="menuItemHistory" onclick="app.openHistoryModal()">
+        <button type="button" class="dropdown-item" id="menuItemInstallApp" onclick="app.installPwa()">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Instalar Aplicativo</span>
+          </div>
+        </button>
+
+        <button type="button" class="dropdown-item" id="menuItemHistory" onclick="app.openHistoryModal()">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Histórico de Rotas</span>
@@ -126,6 +136,21 @@
         <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         Roteirizador Inteligente Sem Zigue-Zague
       </div>
+
+      <!-- Banner de Instalação PWA Mobile -->
+      <div id="pwaHomeInstallBanner" class="pwa-install-banner">
+        <div class="pwa-install-banner-text">
+          <div class="pwa-install-banner-title">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            Instalar App no Celular
+          </div>
+          <div class="meta-text" style="font-size:0.78rem; margin-top:2px;">Use 100% offline em qualquer lugar, mesmo sem sinal de internet na rua!</div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="app.installPwa()" style="width:auto; padding:6px 14px; white-space:nowrap; flex-shrink:0;">
+          Instalar Agora
+        </button>
+      </div>
+
       <h2 class="title-lg">Gerar Rota por Planilha SPX</h2>
       <p class="meta-text" style="margin-bottom:14px;">
         Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da numeração.
@@ -535,6 +560,75 @@
           OK (Escanear Próximo)
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal Como Instalar PWA no Celular -->
+  <div id="modalInstallApp" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content install-modal-card">
+      <div class="modal-header">
+        <div class="kicker" style="color:var(--primary); margin-bottom:0;">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+          Instalar no Celular
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeModal('modalInstallApp')" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+
+      <div style="text-align:center; padding:10px 0;">
+        <img src="icons/icon.svg" width="60" height="60" alt="Organiza Entregas" style="border-radius:14px; box-shadow:0 6px 16px rgba(238,77,45,0.25);" />
+        <h3 style="font-weight:900; font-size:1.15rem; margin-top:10px;">Instalar Organiza Entregas</h3>
+        <p class="meta-text" style="font-size:0.84rem;">Instale como aplicativo nativo para usar 100% offline mesmo sem sinal de internet na rua.</p>
+      </div>
+
+      <!-- Instruções Específicas para iPhone / iOS Safari -->
+      <div id="installGuideIos" class="install-guide-box">
+        <div class="install-guide-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-text">
+            No Safari, toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima <svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 6 12 2 8 6" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>) na barra inferior do iPhone.
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-text">
+            Role a lista de opções para cima e toque em <strong>"Adicionar à Tela de Início"</strong> (<svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2"/></svg>).
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-text">
+            Toque em <strong>"Adicionar"</strong> no canto superior direito. Pronto! O app aparecerá na tela do seu iPhone.
+          </div>
+        </div>
+      </div>
+
+      <!-- Instruções para Android / Outros Navegadores -->
+      <div id="installGuideAndroid" class="install-guide-box hidden">
+        <div class="install-guide-step">
+          <div class="install-step-num">1</div>
+          <div class="install-step-text">
+            Toque no menu do navegador (três pontinhos <strong>⋮</strong> no canto superior direito).
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">2</div>
+          <div class="install-step-text">
+            Selecione a opção <strong>"Instalar aplicativo"</strong> ou <strong>"Adicionar à tela inicial"</strong>.
+          </div>
+        </div>
+        <div class="install-guide-step">
+          <div class="install-step-num">3</div>
+          <div class="install-step-text">
+            Confirme tocando em <strong>"Instalar"</strong>.
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-primary" onclick="app.closeModal('modalInstallApp')" style="margin-top:10px; width:100%; justify-content:center;">
+        Entendi!
+      </button>
     </div>
   </div>
 
