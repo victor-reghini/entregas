@@ -23,6 +23,9 @@
     startTime: null,
     endTime: null,
     results: {},          // tn -> { status: 'delivered'|'failed', reason: '', time: '' }
+    photos: {},           // tn -> dataUrl (armazenadas localmente no IndexedDB)
+    loadedPackages: {},   // tn -> true (marcado como conferido/carregado no carro)
+    loadingFilter: "all", // 'all' | 'pending' | 'checked' | 'photo'
     userCoords: null,
     watchId: null,
     autoArrivedStopId: null,
@@ -34,6 +37,8 @@
       animatedVehicle: null
     }
   };
+
+  let currentPhotoTn = null;
 
   // --- TOAST NOTIFICATIONS (No native browser alerts) ---
   function showToast(msg) {
@@ -84,6 +89,7 @@
         startTime: state.startTime,
         endTime: state.endTime,
         results: state.results,
+        loadedPackages: state.loadedPackages,
         route: state.route
       };
       localStorage.setItem(getStorageKey(), JSON.stringify(serialized));
@@ -128,6 +134,18 @@
           state.startTime = parsed.startTime || null;
           state.endTime = parsed.endTime || null;
           state.results = parsed.results || {};
+          state.loadedPackages = parsed.loadedPackages || {};
+
+          // Carrega fotos salvas localmente no IndexedDB para a rota
+          if (typeof PhotoStorage !== "undefined") {
+            PhotoStorage.getAllPhotos().then((photos) => {
+              state.photos = photos || {};
+              renderLoadingOrderList();
+              if (state.activeTab === "current") {
+                renderCurrentStopView();
+              }
+            });
+          }
           return;
         }
       }
@@ -144,6 +162,8 @@
     state.startTime = null;
     state.endTime = null;
     state.results = {};
+    state.photos = {};
+    state.loadedPackages = {};
   }
 
   // --- ROUTE GENERATION & FILE PARSING (XLSX, XLS, CSV) ---
@@ -168,6 +188,11 @@
     state.startTime = null;
     state.endTime = null;
     state.results = {};
+    state.photos = {};
+    state.loadedPackages = {};
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
     saveState();
 
     switchScreen("home");
@@ -552,6 +577,30 @@
           ? `<span class="badge" style="background:rgba(238,77,45,0.12); color:var(--primary); font-weight:800; font-size:0.75rem; border:1px solid rgba(238,77,45,0.3);">🏢 ${it.apartmentInfo.displayLabel}</span>`
           : "";
 
+        const photoUrl = state.photos[it.tn] || null;
+        const photoBoxHtml = photoUrl
+          ? `
+            <div class="delivery-photo-preview-box">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <img src="${photoUrl}" alt="Foto da embalagem" class="delivery-photo-thumb" onclick="app.viewPhotoLarge(this.src, 'Parada #${stop.id} • Seq #${it.seq} • ${it.tn}')" />
+                <div>
+                  <div style="font-size:0.8rem; font-weight:800; color:var(--primary); display:flex; align-items:center; gap:4px;">
+                    ${renderIcon("camera", 14)} Foto da Embalagem
+                  </div>
+                  <div class="meta-text" style="font-size:0.72rem;">Toque para ampliar e identificar</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.capturePhotoForTn('${it.tn}')">Trocar</button>
+            </div>
+          `
+          : `
+            <div style="margin:4px 0 6px 0;">
+              <button type="button" class="btn btn-outline btn-xs" onclick="app.capturePhotoForTn('${it.tn}')" style="font-size:0.75rem; padding:4px 8px; gap:4px;">
+                ${renderIcon("camera", 14)} Fotografar Pacote
+              </button>
+            </div>
+          `;
+
         return `
         <div class="package-item">
           <div class="package-item-header">
@@ -564,6 +613,7 @@
             </span>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
+          ${photoBoxHtml}
           
           <!-- Seletor de 3 Estados: Entregue, Pendente e Não Entregue (Controle Opcional) -->
           <div class="status-toggles">
@@ -699,6 +749,13 @@
   function finishRoute() {
     state.finished = true;
     state.endTime = new Date().toLocaleString("pt-BR");
+
+    // Limpa as fotos temporárias da rota finalizada (libera espaço no dispositivo)
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
+    state.photos = {};
+
     saveState();
 
     const summary = getRouteSummary();
@@ -792,15 +849,294 @@
     switchTab("current");
   }
 
-  // --- ORGANIZE / SCANNER TAB ---
-  function renderOrganizeView() {
+  // --- ORGANIZE / SCANNER TAB & REVERSE LOADING ORDER ---
+  function getReverseLoadingItems() {
+    if (!state.route || !state.route.stops || state.route.stops.length === 0) return [];
+    const items = [];
+    // Ordem inversa de entrega: da última parada para a primeira
+    for (let sIdx = state.route.stops.length - 1; sIdx >= 0; sIdx--) {
+      const stop = state.route.stops[sIdx];
+      // Dentro da parada, ordem inversa dos itens
+      for (let pIdx = stop.items.length - 1; pIdx >= 0; pIdx--) {
+        const item = stop.items[pIdx];
+        items.push({
+          item,
+          stop,
+          stopIndex: sIdx,
+          packageIndex: pIdx,
+          loadIndex: items.length + 1 // 1º a carregar, 2º a carregar...
+        });
+      }
+    }
+    return items;
+  }
+
+  function renderLoadingOrderList() {
+    const container = document.getElementById("loadingOrderListContainer");
+    if (!container) return;
+
+    if (!state.route || !state.route.stops || state.route.stops.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:20px; text-align:center;">
+          <div class="meta-text">Nenhuma rota carregada no momento.</div>
+        </div>
+      `;
+      return;
+    }
+
+    const allItems = getReverseLoadingItems();
+    const totalCount = allItems.length;
+
+    let countChecked = 0;
+    let countPhoto = 0;
+    allItems.forEach((entry) => {
+      const isChecked = !!(state.loadedPackages[entry.item.tn] || PackageScanner.isScanned(entry.item.tn));
+      const hasPhoto = !!state.photos[entry.item.tn];
+      if (isChecked) countChecked++;
+      if (hasPhoto) countPhoto++;
+    });
+    const countPending = totalCount - countChecked;
+
+    const elAll = document.getElementById("loadFilterCountAll");
+    const elPending = document.getElementById("loadFilterCountPending");
+    const elChecked = document.getElementById("loadFilterCountChecked");
+    const elPhoto = document.getElementById("loadFilterCountPhoto");
+    const progressBadge = document.getElementById("organizeLoadingProgressBadge");
     const countEl = document.getElementById("organizeScannedCount");
-    if (countEl && state.route) {
-      countEl.textContent = `${PackageScanner.getScannedCount()} de ${state.route.totalPackages} conferidos`;
+
+    if (elAll) elAll.textContent = totalCount;
+    if (elPending) elPending.textContent = countPending;
+    if (elChecked) elChecked.textContent = countChecked;
+    if (elPhoto) elPhoto.textContent = countPhoto;
+
+    const pct = totalCount > 0 ? Math.round((countChecked / totalCount) * 100) : 0;
+    if (progressBadge) progressBadge.textContent = `${countChecked}/${totalCount} no carro (${pct}%)`;
+    if (countEl) countEl.textContent = `${countChecked} de ${totalCount} no carro`;
+
+    // Active filter pill
+    document.querySelectorAll(".load-filter-pills .filter-pill").forEach((pill) => {
+      pill.classList.toggle("active", pill.dataset.loadFilter === state.loadingFilter);
+    });
+
+    const searchInput = document.getElementById("scannerSearchInput");
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
+    const filtered = allItems.filter((entry) => {
+      const isChecked = !!(state.loadedPackages[entry.item.tn] || PackageScanner.isScanned(entry.item.tn));
+      const hasPhoto = !!state.photos[entry.item.tn];
+
+      if (state.loadingFilter === "pending" && isChecked) return false;
+      if (state.loadingFilter === "checked" && !isChecked) return false;
+      if (state.loadingFilter === "photo" && !hasPhoto) return false;
+
+      if (query) {
+        const text = [
+          entry.item.tn,
+          entry.item.address,
+          entry.item.complement,
+          entry.stop.title,
+          entry.stop.bairro,
+          `parada ${entry.stop.id}`,
+          `#${entry.stop.id}`,
+          `pacote ${entry.item.seq}`,
+          entry.item.apartmentInfo && entry.item.apartmentInfo.displayLabel
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        if (!text.includes(query)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:20px; background:var(--surface-2); border-radius:var(--radius-md); border:1px dashed var(--border);">
+          <div class="meta-text">Nenhum pacote encontrado para o filtro selecionado.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = filtered.map((entry) => {
+      const { item, stop, loadIndex } = entry;
+      const isChecked = !!(state.loadedPackages[item.tn] || PackageScanner.isScanned(item.tn));
+      const photoUrl = state.photos[item.tn] || null;
+
+      const aptBadge = (item.apartmentInfo && item.apartmentInfo.hasApartment)
+        ? `<div class="load-apt-highlight">🏢 ${item.apartmentInfo.displayLabel}</div>`
+        : "";
+
+      const positionHint = loadIndex <= 3
+        ? "Fundo do carro"
+        : (loadIndex >= totalCount - 2 ? "Porta / Frente" : "Meio do carro");
+
+      return `
+        <div class="loading-item-card ${isChecked ? "is-checked" : ""}" id="loadCard-${item.tn}">
+          <div class="loading-item-top">
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <span class="load-order-pill" title="Posição no carregamento: ${positionHint}">
+                ${loadIndex}º carregar (${positionHint})
+              </span>
+              <span class="load-stop-badge">
+                PARADA #${stop.id}
+              </span>
+              <span class="load-seq-badge">
+                Seq #${item.seq}
+              </span>
+            </div>
+
+            <button type="button" class="btn-check-load ${isChecked ? "checked" : ""}" onclick="app.toggleItemChecked('${item.tn}')">
+              ${isChecked ? `${renderIcon("check", 14)} No Carro` : "Conferir"}
+            </button>
+          </div>
+
+          <div class="loading-item-body">
+            ${aptBadge}
+            <div class="load-address">
+              <strong>${stop.title}</strong>
+              <span class="meta-text">• ${stop.bairro}</span>
+            </div>
+
+            ${item.complement && item.complement !== "Sem complemento" ? `
+              <div class="load-complement"><strong>Compl:</strong> ${item.complement}</div>
+            ` : ""}
+
+            <div class="load-tn-row">
+              <span class="load-tn">Rastreio: <strong>${item.tn}</strong></span>
+              ${item.atId ? `<span class="load-atid">ID: ${item.atId}</span>` : ""}
+            </div>
+          </div>
+
+          <!-- Seção de Foto Aberta do Pacote -->
+          <div class="loading-item-photo-bar">
+            ${photoUrl ? `
+              <div class="load-photo-thumb-wrap" onclick="app.viewPhotoLarge('${photoUrl}', 'Parada #${stop.id} • Seq #${item.seq} • ${item.tn}')">
+                <img src="${photoUrl}" alt="Foto Pacote ${item.tn}" class="load-photo-thumb" />
+                <span class="load-photo-badge">${renderIcon("camera", 14)} Ver Foto</span>
+              </div>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.capturePhotoForTn('${item.tn}')">
+                Trocar Foto
+              </button>
+            ` : `
+              <button type="button" class="btn btn-outline btn-sm btn-load-photo" onclick="app.capturePhotoForTn('${item.tn}')">
+                ${renderIcon("camera", 15)} Tirar Foto Aberta
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function setLoadingFilter(filter) {
+    state.loadingFilter = filter;
+    renderLoadingOrderList();
+  }
+
+  function toggleItemChecked(tn) {
+    const isCurrentlyChecked = !!(state.loadedPackages[tn] || PackageScanner.isScanned(tn));
+    const nextState = !isCurrentlyChecked;
+    state.loadedPackages[tn] = nextState;
+    saveState();
+    renderOrganizeView();
+  }
+
+  function renderOrganizeView() {
+    renderLoadingOrderList();
+  }
+
+  // --- PHOTO CAPTURE & VIEWING ---
+  function updateScanModalPhotoUI(tn) {
+    const noPhotoBox = document.getElementById("modalScanNoPhotoBox");
+    const hasPhotoBox = document.getElementById("modalScanHasPhotoBox");
+    const photoImg = document.getElementById("modalScanPhotoImg");
+
+    if (!tn) {
+      if (noPhotoBox) noPhotoBox.classList.remove("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.add("hidden");
+      return;
+    }
+
+    const photoUrl = state.photos[tn] || null;
+    if (photoUrl) {
+      if (noPhotoBox) noPhotoBox.classList.add("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.remove("hidden");
+      if (photoImg) photoImg.src = photoUrl;
+    } else {
+      if (noPhotoBox) noPhotoBox.classList.remove("hidden");
+      if (hasPhotoBox) hasPhotoBox.classList.add("hidden");
+      if (photoImg) photoImg.src = "";
     }
   }
 
+  function triggerPackagePhotoCapture() {
+    if (!currentPhotoTn) return;
+    const input = document.getElementById("packagePhotoFileInput");
+    if (input) {
+      input.value = "";
+      input.click();
+    }
+  }
+
+  function capturePhotoForTn(tn) {
+    currentPhotoTn = tn;
+    triggerPackagePhotoCapture();
+  }
+
+  async function handlePhotoFileSelected(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !currentPhotoTn) return;
+
+    try {
+      showToast("Comprimindo e salvando foto...");
+      const compressedDataUrl = await PhotoStorage.compressImageFile(file, 1080, 1080, 0.72);
+      await PhotoStorage.savePhoto(currentPhotoTn, compressedDataUrl);
+      state.photos[currentPhotoTn] = compressedDataUrl;
+
+      updateScanModalPhotoUI(currentPhotoTn);
+      renderLoadingOrderList();
+      if (state.activeTab === "current") {
+        renderCurrentStopView();
+      }
+      showToast("📸 Foto do pacote salva com sucesso!");
+    } catch (err) {
+      console.warn("Erro ao salvar foto:", err);
+      showToast("Erro ao processar a foto.");
+    }
+  }
+
+  async function deleteCurrentPackagePhoto() {
+    if (!currentPhotoTn) return;
+    try {
+      await PhotoStorage.deletePhoto(currentPhotoTn);
+      delete state.photos[currentPhotoTn];
+      updateScanModalPhotoUI(currentPhotoTn);
+      renderLoadingOrderList();
+      if (state.activeTab === "current") {
+        renderCurrentStopView();
+      }
+      showToast("Foto removida.");
+    } catch (err) {
+      console.warn("Erro ao remover foto:", err);
+    }
+  }
+
+  function viewPhotoLarge(src, metaText = "") {
+    if (!src) return;
+    const modal = document.getElementById("modalPhotoViewer");
+    const img = document.getElementById("photoViewerImg");
+    const meta = document.getElementById("photoViewerMeta");
+
+    if (img) img.src = src;
+    if (meta) meta.textContent = metaText || "";
+    if (modal) modal.classList.remove("hidden");
+  }
+
   function showPackageModal(result) {
+    currentPhotoTn = result.item.tn;
+    // Marca automaticamente como conferido no veículo ao bipar
+    state.loadedPackages[result.item.tn] = true;
+    saveState();
+
     const stopNumEl = document.getElementById("modalScanStopNumber");
     const orderEl = document.getElementById("modalScanPackageOrder");
     const aptEl = document.getElementById("modalScanApartment");
@@ -827,6 +1163,9 @@
       }
     }
     if (tnEl) tnEl.textContent = result.item.tn;
+
+    // Atualiza foto no modal (permite tirar foto se não tiver, ou ver se já tiver)
+    updateScanModalPhotoUI(currentPhotoTn);
 
     // Atualiza também o cartão inferior para conferência rápida
     const resultCard = document.getElementById("scanResultDisplay");
@@ -1322,6 +1661,11 @@
 
   function resetRoute() {
     localStorage.removeItem(getStorageKey());
+    if (typeof PhotoStorage !== "undefined") {
+      PhotoStorage.clearAllPhotos();
+    }
+    state.photos = {};
+    state.loadedPackages = {};
     state.started = false;
     state.finished = false;
     state.activeStopIdx = 0;
@@ -1824,7 +2168,16 @@
 
     const scanInput = document.getElementById("scannerSearchInput");
     if (scanInput) {
-      scanInput.addEventListener("input", (e) => handleManualSearch(e.target.value));
+      scanInput.addEventListener("input", (e) => {
+        handleManualSearch(e.target.value);
+        renderLoadingOrderList();
+      });
+    }
+
+    // Input de captura de foto do pacote
+    const photoFileInput = document.getElementById("packagePhotoFileInput");
+    if (photoFileInput) {
+      photoFileInput.addEventListener("change", handlePhotoFileSelected);
     }
 
     // Report
@@ -1933,6 +2286,12 @@
     closeModal,
     closeScanModal,
     showPackageModal,
+    setLoadingFilter,
+    toggleItemChecked,
+    triggerPackagePhotoCapture,
+    capturePhotoForTn,
+    deleteCurrentPackagePhoto,
+    viewPhotoLarge,
     openAuthModal,
     toggleAccountMenu,
     openHistoryModal,

@@ -1,5 +1,5 @@
 // Organiza Entregas - Service Worker Offline First
-const CACHE_NAME = "organiza-entregas-v8";
+const CACHE_NAME = "organiza-entregas-v9";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const STATIC_ASSETS = [
   "./js/icons.js",
   "./js/optimizer.js",
   "./js/scanner.js",
+  "./js/photo-storage.js",
   "./js/firebase-service.js",
   "./js/app.js",
   "./apple-touch-icon.png",

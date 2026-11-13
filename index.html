@@ -449,6 +449,45 @@
           <div class="meta-text" id="scanComplement">-</div>
           <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);" id="scanTnCode"></div>
         </div>
+
+        <!-- Seção da Ordem de Carregamento (Ordem Inversa da Entrega) -->
+        <div class="organize-load-section" id="organizeLoadSection">
+          <div class="organize-load-header">
+            <div>
+              <div class="kicker" style="margin-bottom:2px;">
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+                Ordem de Carregamento (Inversa)
+              </div>
+              <div style="font-weight:800; font-size:1.05rem;">Organização do Veículo (Fundo ➔ Porta)</div>
+            </div>
+            <span class="badge" id="organizeLoadingProgressBadge">0 de 0 no carro</span>
+          </div>
+
+          <p class="meta-text" style="margin-bottom:12px; font-size:0.8rem; line-height:1.4;">
+            Carregue os pacotes no carro de cima para baixo: os primeiros itens vão no <strong>fundo do carro</strong> (últimas paradas), deixando as primeiras entregas acessíveis na <strong>porta</strong>.
+          </p>
+
+          <!-- Filtros Rápidos -->
+          <div class="load-filter-pills" id="loadFilterPills">
+            <button type="button" class="filter-pill active" data-load-filter="all" onclick="app.setLoadingFilter('all')">
+              Todos (<span id="loadFilterCountAll">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="pending" onclick="app.setLoadingFilter('pending')">
+              Pendentes (<span id="loadFilterCountPending">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="checked" onclick="app.setLoadingFilter('checked')">
+              No Carro (<span id="loadFilterCountChecked">0</span>)
+            </button>
+            <button type="button" class="filter-pill" data-load-filter="photo" onclick="app.setLoadingFilter('photo')">
+              Com Foto (<span id="loadFilterCountPhoto">0</span>)
+            </button>
+          </div>
+
+          <!-- Lista de Itens em Ordem Inversa -->
+          <div id="loadingOrderListContainer" class="loading-order-list">
+            <!-- Renderizado dinamicamente via JS -->
+          </div>
+        </div>
       </div>
 
       <!-- ABA 4: MAPA INTERATIVO -->
@@ -567,6 +606,37 @@
         <div class="meta-text" id="modalScanComplement" style="margin-top:2px;">-</div>
         <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">
           <span>Código de Rastreio: </span><strong id="modalScanTnCode" style="color:var(--text);">-</strong>
+        </div>
+      </div>
+
+      <!-- Seção de Foto Aberta do Pacote -->
+      <div class="scan-photo-card" id="modalScanPhotoCard">
+        <div id="modalScanNoPhotoBox" class="scan-photo-placeholder">
+          <div style="font-weight:700; font-size:0.85rem; color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Foto Aberta do Pacote
+          </div>
+          <p class="meta-text" style="font-size:0.78rem; text-align:center; margin:3px 0 8px 0;">
+            Afaste o celular para fotografar o pacote inteiro e achar rápido na entrega!
+          </p>
+          <button type="button" class="btn btn-outline btn-sm" id="btnModalTakePic" onclick="app.triggerPackagePhotoCapture()" style="width:100%; justify-content:center; padding:8px 12px; font-weight:700;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Tirar Foto Aberta do Pacote
+          </button>
+        </div>
+
+        <div id="modalScanHasPhotoBox" class="scan-photo-preview-wrap hidden">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <span style="font-size:0.75rem; font-weight:700; color:var(--success-text); display:flex; align-items:center; gap:4px;">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+              Foto salva para a rota
+            </span>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.triggerPackagePhotoCapture()">Trocar</button>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.deleteCurrentPackagePhoto()" style="color:var(--danger-text);">Excluir</button>
+            </div>
+          </div>
+          <img id="modalScanPhotoImg" src="" alt="Foto do Pacote" class="scan-photo-preview-img" onclick="app.viewPhotoLarge(this.src)" />
         </div>
       </div>
 
@@ -720,6 +790,37 @@
     </div>
   </div>
 
+  <!-- Modal Visualizador de Foto Aberta do Pacote -->
+  <div id="modalPhotoViewer" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width:440px; padding:14px; text-align:center;">
+      <div class="modal-header" style="margin-bottom:10px;">
+        <div style="font-weight:800; font-size:1rem; display:flex; align-items:center; gap:6px;">
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <span id="photoViewerTitle">Foto da Embalagem</span>
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeModal('modalPhotoViewer')" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+      <div style="border-radius:var(--radius-sm); overflow:hidden; background:#0a0a0c; display:flex; align-items:center; justify-content:center; max-height:65vh; border:1px solid var(--border);">
+        <img id="photoViewerImg" src="" alt="Foto Ampliada do Pacote" style="max-width:100%; max-height:65vh; object-fit:contain; display:block;" />
+      </div>
+      <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <span class="meta-text" id="photoViewerMeta" style="font-size:0.8rem; text-align:left;"></span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="app.closeModal('modalPhotoViewer')">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input Oculto de Câmera para Captura da Foto do Pacote -->
+  <input
+    type="file"
+    id="packagePhotoFileInput"
+    accept="image/*"
+    capture="environment"
+    style="display:none;"
+  />
+
   <!-- Toast Notification Container -->
   <div id="toastNotice" class="toast-notice hidden"></div>
 
@@ -729,6 +830,7 @@
   <script src="js/icons.js"></script>
   <script src="js/optimizer.js"></script>
   <script src="js/scanner.js"></script>
+  <script src="js/photo-storage.js"></script>
   <script src="js/firebase-service.js"></script>
   <script src="js/app.js"></script>
 
