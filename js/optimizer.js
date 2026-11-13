@@ -206,7 +206,10 @@ const RouteOptimizer = (function () {
       zipcode: headers.findIndex((h) => h.includes("zip") || h.includes("cep") || h.includes("postal")),
       lat: headers.findIndex((h) => h.includes("latitude") || h.includes("lat")),
       lon: headers.findIndex((h) => h.includes("longitude") || h.includes("lon") || h.includes("lng")),
-      atId: headers.findIndex((h) => h.includes("atid") || h.includes("id"))
+      atId: headers.findIndex((h) => h.includes("atid") || h.includes("id")),
+      recipient: headers.findIndex((h) => h.includes("buyer") || h.includes("destinatario") || h.includes("receiver") || h.includes("recipient") || h.includes("cliente") || h === "nome"),
+      notes: headers.findIndex((h) => h.includes("remark") || h.includes("observa") || h.includes("obs") || h.includes("instruc") || h.includes("referencia") || h.includes("note")),
+      sortCode: headers.findIndex((h) => h.includes("sortcode") || h.includes("gaiola") || h.includes("corredor") || h.includes("zona") || h.includes("zone") || h.includes("lote"))
     };
 
     // Defaults if headers not matched standard names
@@ -231,11 +234,138 @@ const RouteOptimizer = (function () {
       const bairro = cols[colMap.bairro] || "Não inf.";
       const city = cols[colMap.city] || "Não inf.";
       const zipcode = cols[colMap.zipcode] || "";
-      const atId = cols[colMap.atId] || "";
+      const atId = colMap.atId >= 0 ? (cols[colMap.atId] || "") : "";
+      const recipient = colMap.recipient >= 0 ? (cols[colMap.recipient] || "") : "";
+      const notes = colMap.notes >= 0 ? (cols[colMap.notes] || "") : "";
+      const sortCode = colMap.sortCode >= 0 ? (cols[colMap.sortCode] || "") : "";
 
-      rows.push({ tn, address: rawAddress, bairro, city, zipcode, lat, lon, atId });
+      rows.push({ tn, address: rawAddress, bairro, city, zipcode, lat, lon, atId, recipient, notes, sortCode });
     }
     return rows;
+  }
+
+  function normalizeStreetKey(street) {
+    return (street || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  // Chain stops by street (monotonic door numbering, nearest-neighbor across streets)
+  function orderStopsByStreetChain(stops, startPos = null) {
+    if (!stops || stops.length === 0) return [];
+
+    const streetsMap = new Map();
+    stops.forEach((s) => {
+      if (!streetsMap.has(s.street)) streetsMap.set(s.street, []);
+      streetsMap.get(s.street).push(s);
+    });
+
+    const unvisited = [];
+    streetsMap.forEach((streetStops, streetName) => {
+      const sortedAsc = [...streetStops].sort((a, b) => a.number - b.number);
+      const sortedDesc = [...sortedAsc].reverse();
+      unvisited.push({
+        street: streetName,
+        asc: sortedAsc,
+        desc: sortedDesc,
+        startAsc: sortedAsc[0],
+        endAsc: sortedAsc[sortedAsc.length - 1],
+        startDesc: sortedDesc[0],
+        endDesc: sortedDesc[sortedDesc.length - 1]
+      });
+    });
+
+    const orderedStops = [];
+    let currentPos = startPos && startPos.lat && startPos.lon
+      ? { lat: startPos.lat, lon: startPos.lon }
+      : null;
+
+    if (!currentPos && unvisited.length > 0) {
+      let bestStartIdx = 0;
+      let minLon = Infinity;
+      unvisited.forEach((seg, idx) => {
+        if (seg.startAsc.lon && seg.startAsc.lon < minLon) {
+          minLon = seg.startAsc.lon;
+          bestStartIdx = idx;
+        }
+      });
+      const firstSeg = unvisited.splice(bestStartIdx, 1)[0];
+      firstSeg.asc.forEach((s) => orderedStops.push(s));
+      currentPos = firstSeg.endAsc;
+    }
+
+    while (unvisited.length > 0) {
+      let bestDist = Infinity;
+      let bestSegIdx = 0;
+      let bestDir = "asc";
+
+      unvisited.forEach((seg, idx) => {
+        const dAsc = haversineMeters(currentPos.lat, currentPos.lon, seg.startAsc.lat, seg.startAsc.lon);
+        const dDesc = haversineMeters(currentPos.lat, currentPos.lon, seg.startDesc.lat, seg.startDesc.lon);
+
+        if (dAsc < bestDist) {
+          bestDist = dAsc;
+          bestSegIdx = idx;
+          bestDir = "asc";
+        }
+        if (dDesc < bestDist) {
+          bestDist = dDesc;
+          bestSegIdx = idx;
+          bestDir = "desc";
+        }
+      });
+
+      const chosen = unvisited.splice(bestSegIdx, 1)[0];
+      const sequence = bestDir === "asc" ? chosen.asc : chosen.desc;
+      sequence.forEach((s) => orderedStops.push(s));
+      currentPos = sequence[sequence.length - 1];
+    }
+
+    return orderedStops;
+  }
+
+  function calculateRouteMetrics(stops) {
+    let totalDistinctAddresses = 0;
+    let totalPackages = 0;
+    const streetsSet = new Set();
+
+    stops.forEach((s) => {
+      streetsSet.add(normalizeStreetKey(s.street));
+      totalDistinctAddresses += s.distinctAddresses || countDistinctAddresses(s.items);
+      totalPackages += s.items ? s.items.length : 0;
+    });
+
+    let totalDistanceMeters = 0;
+    for (let i = 0; i < stops.length - 1; i++) {
+      totalDistanceMeters += haversineMeters(
+        stops[i].lat,
+        stops[i].lon,
+        stops[i + 1].lat,
+        stops[i + 1].lon
+      );
+    }
+
+    const serviceMinutes = totalDistinctAddresses * 3;
+    const totalDistanceKm = parseFloat((totalDistanceMeters / 1000).toFixed(1));
+    const transitMinutes = totalDistanceKm > 0
+      ? Math.round((totalDistanceKm / 22) * 60)
+      : Math.max(0, (stops.length - 1) * 2);
+    const estimatedMinutes = serviceMinutes + transitMinutes;
+    const estimatedDurationStr = formatDuration(estimatedMinutes);
+
+    return {
+      totalPackages,
+      streetsCount: streetsSet.size,
+      totalDistinctAddresses,
+      serviceMinutes,
+      transitMinutes,
+      totalDistanceKm,
+      estimatedMinutes,
+      estimatedDurationStr
+    };
   }
 
   // Optimize and build stops
@@ -266,106 +396,30 @@ const RouteOptimizer = (function () {
         tn: r.tn,
         address: r.address,
         complement: complement || "Sem complemento",
-        atId: r.atId,
+        atId: r.atId || "",
+        recipient: r.recipient || "",
+        notes: r.notes || "",
+        sortCode: r.sortCode || "",
         apartmentInfo
       });
     });
 
     const stops = Array.from(stopMap.values());
-
-    // 2. Group stops by Street
-    const streetsMap = new Map();
-    stops.forEach((s) => {
-      if (!streetsMap.has(s.street)) streetsMap.set(s.street, []);
-      streetsMap.get(s.street).push(s);
-    });
-
-    // 3. For each street, sort by door number (asc and desc)
-    const streetSegments = [];
-    streetsMap.forEach((streetStops, streetName) => {
-      streetStops.sort((a, b) => a.number - b.number);
-      const asc = [...streetStops];
-      const desc = [...streetStops].reverse();
-      streetSegments.push({
-        street: streetName,
-        asc,
-        desc,
-        startAsc: asc[0],
-        endAsc: asc[asc.length - 1],
-        startDesc: desc[0],
-        endDesc: desc[desc.length - 1]
-      });
-    });
-
-    // 4. Determine start point
-    let unvisited = [...streetSegments];
-    let currentPos = null;
-
-    if (options.userLocation && options.userLocation.lat && options.userLocation.lon) {
-      currentPos = { lat: options.userLocation.lat, lon: options.userLocation.lon };
-    }
-
-    const orderedStops = [];
-
-    // If no initial GPS pos, start at the most peripheral street (furthest or closest to reference)
-    if (!currentPos && unvisited.length > 0) {
-      let bestStartIdx = 0;
-      let minLon = Infinity;
-      unvisited.forEach((seg, idx) => {
-        if (seg.startAsc.lon && seg.startAsc.lon < minLon) {
-          minLon = seg.startAsc.lon;
-          bestStartIdx = idx;
-        }
-      });
-      const firstSeg = unvisited.splice(bestStartIdx, 1)[0];
-      firstSeg.asc.forEach((s) => orderedStops.push(s));
-      currentPos = firstSeg.endAsc;
-    }
-
-    // 5. Chained Nearest Neighbor across streets
-    while (unvisited.length > 0) {
-      let bestDist = Infinity;
-      let bestSegIdx = 0;
-      let bestDir = "asc";
-
-      unvisited.forEach((seg, idx) => {
-        const dAsc = haversineMeters(currentPos.lat, currentPos.lon, seg.startAsc.lat, seg.startAsc.lon);
-        const dDesc = haversineMeters(currentPos.lat, currentPos.lon, seg.startDesc.lat, seg.startDesc.lon);
-
-        if (dAsc < bestDist) {
-          bestDist = dAsc;
-          bestSegIdx = idx;
-          bestDir = "asc";
-        }
-        if (dDesc < bestDist) {
-          bestDist = dDesc;
-          bestSegIdx = idx;
-          bestDir = "desc";
-        }
-      });
-
-      const chosen = unvisited.splice(bestSegIdx, 1)[0];
-      const sequence = bestDir === "asc" ? chosen.asc : chosen.desc;
-      sequence.forEach((s) => orderedStops.push(s));
-      currentPos = sequence[sequence.length - 1];
-    }
+    const orderedStops = orderStopsByStreetChain(stops, options.userLocation);
 
     // If reverse option requested
     if (options.reverse) {
       orderedStops.reverse();
     }
 
-    // 6. Assign IDs, sort packages by apartment, and sequential metadata
+    // Assign IDs, sort packages by apartment, and sequential metadata
     let packageSeq = 0;
-    let totalDistinctAddresses = 0;
-
     orderedStops.forEach((s, idx) => {
       s.id = idx + 1;
-      // Sort items within each stop by apartment
+      s.originalId = s.id;
       sortItemsByApartment(s.items);
       s.distinctAddresses = countDistinctAddresses(s.items);
       s.estimatedMinutes = s.distinctAddresses * 3;
-      totalDistinctAddresses += s.distinctAddresses;
 
       s.items.forEach((it) => {
         packageSeq += 1;
@@ -374,37 +428,112 @@ const RouteOptimizer = (function () {
       });
     });
 
-    // 7. Calculate travel distance and total estimated time
-    let totalDistanceMeters = 0;
-    for (let i = 0; i < orderedStops.length - 1; i++) {
-      const d = haversineMeters(
-        orderedStops[i].lat,
-        orderedStops[i].lon,
-        orderedStops[i + 1].lat,
-        orderedStops[i + 1].lon
-      );
-      totalDistanceMeters += d;
-    }
-
-    const serviceMinutes = totalDistinctAddresses * 3;
-    const totalDistanceKm = parseFloat((totalDistanceMeters / 1000).toFixed(1));
-    // Estimate transit: ~22 km/h city average, or fallback ~2 min per transit between stops if no coords
-    const transitMinutes = totalDistanceKm > 0
-      ? Math.round((totalDistanceKm / 22) * 60)
-      : Math.max(0, (orderedStops.length - 1) * 2);
-    const estimatedMinutes = serviceMinutes + transitMinutes;
-    const estimatedDurationStr = formatDuration(estimatedMinutes);
-
     return {
       stops: orderedStops,
-      totalPackages: packageSeq,
-      streetsCount: streetsMap.size,
-      totalDistinctAddresses,
-      serviceMinutes,
-      transitMinutes,
-      totalDistanceKm,
-      estimatedMinutes,
-      estimatedDurationStr
+      ...calculateRouteMetrics(orderedStops)
+    };
+  }
+
+  /**
+   * Find closest pending stop within maxWalkMeters from originCoords,
+   * strictly excluding current stop, the immediate next pending stop, and any stop on the same street.
+   */
+  function findNearbyWalkCandidate(stops, activeStopIdx, originCoords, maxWalkMeters, results = {}, dismissedKeys = {}) {
+    if (!stops || stops.length === 0 || !maxWalkMeters || maxWalkMeters <= 0) return null;
+    const currentStop = stops[activeStopIdx];
+    if (!currentStop) return null;
+
+    const origin = originCoords && originCoords.lat && originCoords.lon
+      ? originCoords
+      : (currentStop.lat && currentStop.lon ? { lat: currentStop.lat, lon: currentStop.lon } : null);
+    if (!origin) return null;
+
+    const hasPendingItem = (stop) =>
+      stop && stop.items && stop.items.some((it) => !results[it.tn] || results[it.tn].status === "pending");
+
+    // Immediate next pending delivery in queue
+    let nextPendingIdx = -1;
+    for (let k = activeStopIdx + 1; k < stops.length; k++) {
+      if (hasPendingItem(stops[k])) {
+        nextPendingIdx = k;
+        break;
+      }
+    }
+
+    const currentStreetKey = normalizeStreetKey(currentStop.street);
+    let best = null;
+
+    for (let i = 0; i < stops.length; i++) {
+      if (i === activeStopIdx || i === nextPendingIdx) continue;
+      const cand = stops[i];
+      if (!cand || !cand.lat || !cand.lon) continue;
+      if (!hasPendingItem(cand)) continue;
+
+      if (currentStreetKey && normalizeStreetKey(cand.street) === currentStreetKey) {
+        continue;
+      }
+
+      const pairKey = `${currentStop.originalId || currentStop.id}->${cand.originalId || cand.id}`;
+      if (dismissedKeys && dismissedKeys[pairKey]) continue;
+
+      const dist = Math.round(haversineMeters(origin.lat, origin.lon, cand.lat, cand.lon));
+      if (dist <= maxWalkMeters && (!best || dist < best.distanceMeters)) {
+        best = {
+          stop: cand,
+          stopIndex: i,
+          distanceMeters: dist,
+          pairKey
+        };
+      }
+    }
+
+    return best;
+  }
+
+  /**
+   * Remove an early-walked stop from the queue and re-optimize remaining upcoming stops.
+   */
+  function recalculateRouteAfterWalk(stops, activeStopIdx, walkedStopIdx, originPos = null) {
+    if (!stops || walkedStopIdx < 0 || walkedStopIdx >= stops.length) return null;
+
+    const working = stops.slice();
+    const [walkedStop] = working.splice(walkedStopIdx, 1);
+
+    let newActiveIdx = walkedStopIdx < activeStopIdx ? activeStopIdx - 1 : activeStopIdx;
+    if (working.length === 0) {
+      return {
+        walkedStop,
+        stops: [],
+        newActiveIdx: 0,
+        metrics: calculateRouteMetrics([])
+      };
+    }
+
+    newActiveIdx = Math.max(0, Math.min(newActiveIdx, working.length - 1));
+    const prefix = working.slice(0, newActiveIdx + 1);
+    const tail = working.slice(newActiveIdx + 1);
+
+    const anchorStop = working[newActiveIdx];
+    const startPos = (originPos && originPos.lat && originPos.lon)
+      ? originPos
+      : (anchorStop && anchorStop.lat && anchorStop.lon ? anchorStop : null);
+
+    const optimizedTail = tail.length > 1 ? orderStopsByStreetChain(tail, startPos) : tail;
+    const newStops = [...prefix, ...optimizedTail];
+
+    newStops.forEach((s, idx) => {
+      if (!s.originalId) s.originalId = s.id;
+      s.id = idx + 1;
+      s.items.forEach((it) => {
+        it.stopId = s.id;
+      });
+    });
+
+    return {
+      walkedStop,
+      stops: newStops,
+      newActiveIdx,
+      metrics: calculateRouteMetrics(newStops)
     };
   }
 
@@ -447,6 +576,9 @@ const RouteOptimizer = (function () {
   return {
     parseCSV,
     buildOptimizedRoute,
+    findNearbyWalkCandidate,
+    recalculateRouteAfterWalk,
+    normalizeStreetKey,
     formatStopLabel,
     buildGoogleMapsRouteUrl,
     buildSingleStopGoogleMapsUrl,

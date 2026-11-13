@@ -43,7 +43,7 @@
   <script src="vendor/firebase-firestore-compat.js"></script>
 
   <!-- App Stylesheet -->
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=1.1.3" />
 </head>
 <body>
   <!-- HEADER COMPACTO MOBILE-FIRST -->
@@ -76,6 +76,13 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
+        <button type="button" class="dropdown-item hidden" id="menuItemUpdateApp" onclick="app.applyPwaUpdate()" style="color:var(--success-text); font-weight:700;">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <span>Atualizar App (Nova Versão)</span>
+          </div>
+        </button>
+
         <button type="button" class="dropdown-item" id="menuItemInstallApp">
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
@@ -87,6 +94,13 @@
           <div class="dropdown-item-content">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Histórico de Rotas</span>
+          </div>
+        </button>
+
+        <button type="button" class="dropdown-item" id="menuItemNavApp" onclick="app.toggleNavApp()">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <span id="menuNavAppLabel">Navegação: Google Maps</span>
           </div>
         </button>
 
@@ -128,6 +142,25 @@
   <div id="offlineBanner" class="offline-banner hidden">
     <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
     <span>Modo Offline: Operando com dados locais salvos.</span>
+  </div>
+
+  <!-- NOVA VERSÃO DISPONÍVEL (PWA AUTO-UPDATE BANNER) -->
+  <div id="pwaUpdateBanner" class="pwa-update-banner hidden" role="region" aria-label="Atualização do aplicativo">
+    <div class="pwa-update-info">
+      <div class="pwa-update-title">
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Nova versão disponível!</span>
+      </div>
+      <div class="pwa-update-sub">Atualize agora para obter as melhorias mais recentes.</div>
+    </div>
+    <div class="pwa-update-actions">
+      <button type="button" class="btn btn-primary btn-sm" id="btnApplyPwaUpdate" onclick="app.applyPwaUpdate()" style="width:auto; padding:6px 12px; white-space:nowrap;">
+        Atualizar agora
+      </button>
+      <button type="button" class="btn btn-outline btn-sm" id="btnDismissPwaUpdate" onclick="app.dismissPwaUpdate()" style="width:auto; padding:6px 10px;">
+        Depois
+      </button>
+    </div>
   </div>
 
   <!-- MAIN VIEWPORT -->
@@ -209,6 +242,51 @@
           ⏱️ 3 min por endereço/apartamento + deslocamento
         </div>
 
+        <!-- Configuração de Rota Dinâmica (Distância Máxima a Pé) -->
+        <div class="walk-config-box" id="walkDistanceConfigBox">
+          <div class="walk-config-header">
+            <label for="maxWalkDistanceInput" class="walk-config-label">
+              🚶 Distância máxima a pé (atalhos)
+            </label>
+            <div class="walk-input-wrap">
+              <input
+                type="number"
+                id="maxWalkDistanceInput"
+                class="input-field walk-distance-input"
+                min="0"
+                max="1000"
+                step="10"
+                value="150"
+              />
+              <span class="walk-unit">m</span>
+            </div>
+          </div>
+          <div class="walk-presets" id="walkPresetPills">
+            <button type="button" class="filter-pill" data-walk-meters="0" onclick="app.setMaxWalkDistance(0)">Desativado</button>
+            <button type="button" class="filter-pill" data-walk-meters="80" onclick="app.setMaxWalkDistance(80)">80m</button>
+            <button type="button" class="filter-pill active" data-walk-meters="150" onclick="app.setMaxWalkDistance(150)">150m</button>
+            <button type="button" class="filter-pill" data-walk-meters="250" onclick="app.setMaxWalkDistance(250)">250m</button>
+            <button type="button" class="filter-pill" data-walk-meters="400" onclick="app.setMaxWalkDistance(400)">400m</button>
+          </div>
+          <p class="meta-text" style="font-size:0.76rem; margin-top:6px; line-height:1.35;">
+            Se houver outra entrega (em outra rua fora da sequência imediata) dentro dessa distância ao chegar em um ponto, você poderá adiantá-la a pé e a rota será recalculada.
+          </p>
+        </div>
+
+        <!-- Escolha do App de Navegação (Início da Rota) -->
+        <div class="walk-config-box" id="navAppConfigBox">
+          <div class="walk-config-header" style="margin-bottom:8px;">
+            <span class="walk-config-label">🧭 App de Navegação</span>
+          </div>
+          <div class="walk-presets" id="navAppPills">
+            <button type="button" class="filter-pill active" data-nav-app="maps" onclick="app.setNavApp('maps')">Google Maps</button>
+            <button type="button" class="filter-pill" data-nav-app="waze" onclick="app.setNavApp('waze')">Waze</button>
+          </div>
+          <p class="meta-text" id="navAppHint" style="font-size:0.76rem; margin-top:6px; line-height:1.35;">
+            Exibe a Rota Completa no Google Maps e a Lista de Paradas durante a entrega.
+          </p>
+        </div>
+
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           <button class="btn btn-primary" id="btnStartRoute">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/></svg>
@@ -218,6 +296,11 @@
           <a id="btnOpenFullRouteDirect" href="#" target="_blank" rel="noopener" class="btn btn-maps">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             Abrir Rota Completa no Google Maps (Android Auto)
+          </a>
+
+          <a id="btnOpenFirstStopWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze hidden">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Abrir 1ª Parada no Waze
           </a>
 
           <button type="button" class="btn btn-secondary btn-sm" id="btnOpenMultiBatchModal">
@@ -253,15 +336,19 @@
       <nav class="tab-bar-nav" aria-label="Abas da Rota">
         <button class="tab-btn active" data-tab="current">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <span>Parada Atual</span>
+          <span>Atual</span>
+        </button>
+        <button class="tab-btn" data-tab="loading">
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <span>Carregar</span>
         </button>
         <button class="tab-btn" data-tab="all">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
-          <span>Lista Completa</span>
+          <span>Lista</span>
         </button>
         <button class="tab-btn" data-tab="organize">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="3" height="3" fill="currentColor"/></svg>
-          <span>Organizar (QR)</span>
+          <span>Scanner</span>
         </button>
         <button class="tab-btn" data-tab="map">
           <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -299,34 +386,30 @@
             </button>
           </div>
 
-          <!-- Botões de Ação de Navegação -->
-          <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-              <a id="btnNavigateSingle" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="text-align:center;">
-                <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                Google Maps
-              </a>
-              <a id="btnNavigateWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze btn-sm" style="text-align:center;">
-                <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                Waze
-              </a>
-            </div>
+          <!-- Atalho a Pé Dinâmico (Status / Ajuste Rápido) -->
+          <div class="walk-inline-bar" id="walkRadiusInlineBar">
+            <span id="walkRadiusInlineLabel" class="walk-inline-label">🚶 Atalho a pé: até 150m</span>
+            <button type="button" class="btn btn-outline btn-sm walk-inline-btn" onclick="app.promptAdjustWalkDistance()">
+              Ajustar
+            </button>
+          </div>
 
-            <a id="btnNavigateMultiBatch" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+          <!-- Botões de Ação de Navegação (Conforme preferência Maps ou Waze) -->
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
+            <a id="btnCurrentStopFullRoute" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="text-align:center;">
               <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              Navegar Próximas 10 Paradas no Google Maps
+              Rota Completa (Google Maps)
             </a>
 
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
-              <a id="btnCurrentStopFullRoute" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="text-align:center;">
-                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                Rota Completa
-              </a>
-              <button type="button" class="btn btn-outline btn-sm" onclick="app.openMultiBatchModal()">
-                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/></svg>
-                Ver Trechos
-              </button>
-            </div>
+            <a id="btnNavigateWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze btn-sm hidden" style="text-align:center;">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              Abrir Parada no Waze
+            </a>
+
+            <button type="button" id="btnCurrentGoToStops" class="btn btn-outline btn-sm" onclick="app.switchTab('all')">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/><line x1="3" y1="6" x2="3.01" y2="6" stroke="currentColor" stroke-width="2"/><line x1="3" y1="12" x2="3.01" y2="12" stroke="currentColor" stroke-width="2"/><line x1="3" y1="18" x2="3.01" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+              Lista de Paradas
+            </button>
 
             <button id="btnMarkArrived" class="btn btn-success" style="margin-top:4px;">
               <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -396,7 +479,7 @@
           <div style="display:flex; align-items:center; gap:6px;">
             <a id="btnAllStopsFullMaps" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="width:auto; padding:5px 10px;">
               <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              Maps
+              Rota Completa
             </a>
             <span class="badge badge-primary">Auto-scroll</span>
           </div>
@@ -450,43 +533,58 @@
           <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);" id="scanTnCode"></div>
         </div>
 
-        <!-- Seção da Ordem de Carregamento (Ordem Inversa da Entrega) -->
-        <div class="organize-load-section" id="organizeLoadSection">
-          <div class="organize-load-header">
-            <div>
-              <div class="kicker" style="margin-bottom:2px;">
-                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                Ordem de Carregamento (Inversa)
-              </div>
-              <div style="font-weight:800; font-size:1.05rem;">Organização do Veículo (Fundo ➔ Porta)</div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="app.switchTab('loading')" style="margin-top:12px;">
+          Ver Lista Completa de Carregamento (Ordem Inversa)
+        </button>
+      </div>
+
+      <!-- ABA: CARREGAMENTO (ORDEM INVERSA DA ENTREGA) -->
+      <div id="tabLoading" class="card hidden">
+        <div class="organize-load-header">
+          <div>
+            <div class="kicker" style="margin-bottom:2px;">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              Ordem de Carregamento (Inversa da Entrega)
             </div>
-            <span class="badge" id="organizeLoadingProgressBadge">0 de 0 no carro</span>
+            <div style="font-weight:800; font-size:1.1rem;">Carregar Veículo (Ordem Inversa)</div>
           </div>
+          <span class="badge" id="organizeLoadingProgressBadge">0 de 0 no carro</span>
+        </div>
 
-          <p class="meta-text" style="margin-bottom:12px; font-size:0.8rem; line-height:1.4;">
-            Carregue os pacotes no carro de cima para baixo: os primeiros itens vão no <strong>fundo do carro</strong> (últimas paradas), deixando as primeiras entregas acessíveis na <strong>porta</strong>.
-          </p>
+        <p class="meta-text" style="margin-bottom:10px; font-size:0.8rem; line-height:1.4;">
+          Lista em ordem decrescente (do maior número de entrega para o menor). Carregue primeiro os números maiores.
+        </p>
 
-          <!-- Filtros Rápidos -->
-          <div class="load-filter-pills" id="loadFilterPills">
-            <button type="button" class="filter-pill active" data-load-filter="all" onclick="app.setLoadingFilter('all')">
-              Todos (<span id="loadFilterCountAll">0</span>)
-            </button>
-            <button type="button" class="filter-pill" data-load-filter="pending" onclick="app.setLoadingFilter('pending')">
-              Pendentes (<span id="loadFilterCountPending">0</span>)
-            </button>
-            <button type="button" class="filter-pill" data-load-filter="checked" onclick="app.setLoadingFilter('checked')">
-              No Carro (<span id="loadFilterCountChecked">0</span>)
-            </button>
-            <button type="button" class="filter-pill" data-load-filter="photo" onclick="app.setLoadingFilter('photo')">
-              Com Foto (<span id="loadFilterCountPhoto">0</span>)
-            </button>
-          </div>
+        <!-- Busca Rápida na Aba de Carregamento -->
+        <div style="margin-bottom:10px;">
+          <input
+            type="search"
+            id="loadingSearchInput"
+            class="input-field"
+            placeholder="Filtrar por rastreio, rua, parada (#12), apto ou local..."
+            autocomplete="off"
+          />
+        </div>
 
-          <!-- Lista de Itens em Ordem Inversa -->
-          <div id="loadingOrderListContainer" class="loading-order-list">
-            <!-- Renderizado dinamicamente via JS -->
-          </div>
+        <!-- Filtros Rápidos -->
+        <div class="load-filter-pills" id="loadFilterPills">
+          <button type="button" class="filter-pill active" data-load-filter="all" onclick="app.setLoadingFilter('all')">
+            Todos (<span id="loadFilterCountAll">0</span>)
+          </button>
+          <button type="button" class="filter-pill" data-load-filter="pending" onclick="app.setLoadingFilter('pending')">
+            Pendentes (<span id="loadFilterCountPending">0</span>)
+          </button>
+          <button type="button" class="filter-pill" data-load-filter="checked" onclick="app.setLoadingFilter('checked')">
+            No Carro (<span id="loadFilterCountChecked">0</span>)
+          </button>
+          <button type="button" class="filter-pill" data-load-filter="photo" onclick="app.setLoadingFilter('photo')">
+            Com Foto (<span id="loadFilterCountPhoto">0</span>)
+          </button>
+        </div>
+
+        <!-- Lista de Itens em Ordem Inversa -->
+        <div id="loadingOrderListContainer" class="loading-order-list">
+          <!-- Renderizado dinamicamente via JS -->
         </div>
       </div>
 
@@ -621,7 +719,7 @@
           </p>
           <button type="button" class="btn btn-outline btn-sm" id="btnModalTakePic" onclick="app.triggerPackagePhotoCapture()" style="width:100%; justify-content:center; padding:8px 12px; font-weight:700;">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            Tirar Foto Aberta do Pacote
+            Tirar Foto
           </button>
         </div>
 
@@ -812,6 +910,51 @@
     </div>
   </div>
 
+  <!-- Modal Entrega Próxima a Pé (Rota Dinâmica) -->
+  <div id="modalWalkDelivery" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content walk-modal-card">
+      <div class="modal-header">
+        <div class="kicker" style="color:var(--primary); margin-bottom:0;">
+          🚶 Entrega Próxima Detectada
+        </div>
+        <button type="button" class="icon-btn" onclick="app.declineWalkDelivery()" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+      </div>
+
+      <!-- Passo 1: Pergunta ao Entregador -->
+      <div id="walkPromptStep">
+        <p class="walk-prompt-message">
+          Há uma entrega muito próxima de você. Deseja realizar a entrega a pé?
+        </p>
+        <div id="walkCandidateSummary" class="walk-candidate-box"></div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+          <button type="button" class="btn btn-primary" id="btnAcceptWalkDelivery" onclick="app.acceptWalkDelivery()">
+            Sim, realizar a entrega a pé
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btnDeclineWalkDelivery" onclick="app.declineWalkDelivery()">
+            Não, manter na fila
+          </button>
+        </div>
+      </div>
+
+      <!-- Passo 2: Conferência dos Pacotes da Entrega a Pé -->
+      <div id="walkChecklistStep" class="hidden">
+        <div id="walkChecklistHeader" style="margin-bottom:8px;"></div>
+        <div id="walkPackageItemsContainer" style="max-height:46vh; overflow-y:auto;"></div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+          <button type="button" class="btn btn-success" id="btnConfirmWalkDelivery" onclick="app.confirmWalkDelivery()">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+            Concluir Entrega a Pé e Recalcular Rota
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btnCancelWalkDelivery" onclick="app.cancelWalkDelivery()">
+            Cancelar e voltar para a fila
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Input Oculto de Câmera para Captura da Foto do Pacote -->
   <input
     type="file"
@@ -828,11 +971,11 @@
   <script>window.__ENV__ = window.__ENV__ || {};</script>
   <script src="js/env.js"></script>
   <script src="js/icons.js"></script>
-  <script src="js/optimizer.js"></script>
+  <script src="js/optimizer.js?v=1.1.3"></script>
   <script src="js/scanner.js"></script>
   <script src="js/photo-storage.js"></script>
   <script src="js/firebase-service.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=1.1.3"></script>
 
   <script>
     // Handlers para os modais de autenticação e configuração (Sem alertas nativos)

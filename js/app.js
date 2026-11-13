@@ -3,6 +3,19 @@
 
 (function () {
   const THEME_KEY = "spx_theme_preference";
+  const WALK_DIST_KEY = "spx_max_walk_distance";
+  const NAV_APP_KEY = "spx_nav_app_preference";
+
+  function getSavedNavApp() {
+    return localStorage.getItem(NAV_APP_KEY) === "waze" ? "waze" : "maps";
+  }
+
+  function getSavedWalkDistance() {
+    const raw = localStorage.getItem(WALK_DIST_KEY);
+    if (raw === null) return 150;
+    const parsed = parseInt(raw, 10);
+    return isNaN(parsed) || parsed < 0 ? 150 : parsed;
+  }
 
   // Dynamic storage key scoped to current authenticated user
   function getStorageKey() {
@@ -16,7 +29,7 @@
     theme: localStorage.getItem(THEME_KEY) || "dark",
     started: false,
     finished: false,
-    activeTab: "current", // 'current' | 'all' | 'organize' | 'map'
+    activeTab: "current", // 'current' | 'loading' | 'all' | 'organize' | 'map'
     route: null,          // { stops: [], totalPackages: 0, streetsCount: 0 }
     activeStopIdx: 0,
     arrivedCurrent: false,
@@ -25,6 +38,13 @@
     results: {},          // tn -> { status: 'delivered'|'failed', reason: '', time: '' }
     photos: {},           // tn -> dataUrl (armazenadas localmente no IndexedDB)
     loadedPackages: {},   // tn -> true (marcado como conferido/carregado no carro)
+    packageLocations: {}, // tn -> texto de localização física no veículo
+    walkedStops: [],      // paradas adiantadas a pé e removidas da fila
+    maxWalkDistanceMeters: getSavedWalkDistance(),
+    navApp: getSavedNavApp(), // 'maps' | 'waze'
+    dismissedWalkKeys: {},
+    pendingWalkCandidate: null,
+    walkChecklistOpen: false,
     loadingFilter: "all", // 'all' | 'pending' | 'checked' | 'photo'
     userCoords: null,
     watchId: null,
@@ -39,6 +59,8 @@
   };
 
   let currentPhotoTn = null;
+  let swWaitingWorker = null;
+  let swRefreshing = false;
 
   // --- TOAST NOTIFICATIONS (No native browser alerts) ---
   function showToast(msg) {
@@ -90,6 +112,10 @@
         endTime: state.endTime,
         results: state.results,
         loadedPackages: state.loadedPackages,
+        packageLocations: state.packageLocations,
+        walkedStops: state.walkedStops,
+        maxWalkDistanceMeters: state.maxWalkDistanceMeters,
+        navApp: state.navApp,
         route: state.route
       };
       localStorage.setItem(getStorageKey(), JSON.stringify(serialized));
@@ -103,7 +129,7 @@
       const saved = localStorage.getItem(getStorageKey());
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.route && parsed.route.stops && parsed.route.stops.length > 0) {
+        if (parsed.route && parsed.route.stops && (parsed.route.stops.length > 0 || (parsed.walkedStops && parsed.walkedStops.length > 0))) {
           state.route = parsed.route;
           if (!state.route.totalDistinctAddresses || !state.route.estimatedDurationStr) {
             let totalDist = 0;
@@ -135,6 +161,14 @@
           state.endTime = parsed.endTime || null;
           state.results = parsed.results || {};
           state.loadedPackages = parsed.loadedPackages || {};
+          state.packageLocations = parsed.packageLocations || {};
+          state.walkedStops = parsed.walkedStops || [];
+          if (typeof parsed.maxWalkDistanceMeters === "number") {
+            state.maxWalkDistanceMeters = parsed.maxWalkDistanceMeters;
+          }
+          if (parsed.navApp === "waze" || parsed.navApp === "maps") {
+            state.navApp = parsed.navApp;
+          }
 
           // Carrega fotos salvas localmente no IndexedDB para a rota
           if (typeof PhotoStorage !== "undefined") {
@@ -164,6 +198,11 @@
     state.results = {};
     state.photos = {};
     state.loadedPackages = {};
+    state.packageLocations = {};
+    state.walkedStops = [];
+    state.dismissedWalkKeys = {};
+    state.pendingWalkCandidate = null;
+    state.walkChecklistOpen = false;
   }
 
   // --- ROUTE GENERATION & FILE PARSING (XLSX, XLS, CSV) ---
@@ -190,6 +229,11 @@
     state.results = {};
     state.photos = {};
     state.loadedPackages = {};
+    state.packageLocations = {};
+    state.walkedStops = [];
+    state.dismissedWalkKeys = {};
+    state.pendingWalkCandidate = null;
+    state.walkChecklistOpen = false;
     if (typeof PhotoStorage !== "undefined") {
       PhotoStorage.clearAllPhotos();
     }
@@ -233,10 +277,142 @@
     }
   }
 
+  function syncNavAppUI() {
+    const isWaze = state.navApp === "waze";
+
+    document.querySelectorAll("#navAppPills .filter-pill").forEach((pill) => {
+      pill.classList.toggle("active", pill.dataset.navApp === state.navApp);
+    });
+
+    const hint = document.getElementById("navAppHint");
+    if (hint) {
+      hint.textContent = isWaze
+        ? "Exibe os atalhos diretos para o Waze na parada atual e na lista de paradas."
+        : "Exibe a Rota Completa no Google Maps e a Lista de Paradas durante a entrega.";
+    }
+
+    const menuLabel = document.getElementById("menuNavAppLabel");
+    if (menuLabel) {
+      menuLabel.textContent = isWaze ? "Navegação: Waze" : "Navegação: Google Maps";
+    }
+
+    const toggleHidden = (id, hide) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle("hidden", hide);
+    };
+
+    toggleHidden("btnOpenFullRouteDirect", isWaze);
+    toggleHidden("btnOpenMultiBatchModal", isWaze);
+    toggleHidden("btnOpenFirstStopWaze", !isWaze);
+    toggleHidden("btnCurrentStopFullRoute", isWaze);
+    toggleHidden("btnNavigateWaze", !isWaze);
+    toggleHidden("btnAllStopsFullMaps", isWaze);
+  }
+
+  function setNavApp(appName) {
+    state.navApp = appName === "waze" ? "waze" : "maps";
+    localStorage.setItem(NAV_APP_KEY, state.navApp);
+    syncNavAppUI();
+    saveState();
+    if (state.route && state.route.stops.length > 0) {
+      renderFullStopsList();
+    }
+  }
+
+  function toggleNavApp() {
+    setNavApp(state.navApp === "waze" ? "maps" : "waze");
+    showToast(state.navApp === "waze" ? "Navegação definida para Waze." : "Navegação definida para Google Maps.");
+  }
+
+  function syncWalkDistanceUI() {
+    const val = Math.max(0, parseInt(state.maxWalkDistanceMeters, 10) || 0);
+    const input = document.getElementById("maxWalkDistanceInput");
+    if (input) input.value = val;
+
+    document.querySelectorAll("#walkPresetPills .filter-pill").forEach((pill) => {
+      const pVal = parseInt(pill.dataset.walkMeters, 10);
+      pill.classList.toggle("active", pVal === val);
+    });
+
+    const inlineLabel = document.getElementById("walkRadiusInlineLabel");
+    if (inlineLabel) {
+      inlineLabel.textContent = val > 0
+        ? `🚶 Atalho a pé: até ${val}m`
+        : "🚶 Atalho a pé: desativado";
+    }
+  }
+
+  function setMaxWalkDistance(meters) {
+    const parsed = Math.max(0, Math.min(1000, parseInt(meters, 10) || 0));
+    state.maxWalkDistanceMeters = parsed;
+    localStorage.setItem(WALK_DIST_KEY, String(parsed));
+    syncWalkDistanceUI();
+    saveState();
+
+    if (state.started && !state.finished && state.arrivedCurrent) {
+      checkNearbyWalkDelivery();
+    }
+  }
+
+  function promptAdjustWalkDistance() {
+    const bar = document.getElementById("walkRadiusInlineBar");
+    if (!bar) return;
+    let editor = document.getElementById("walkRadiusInlineEditor");
+    if (editor) {
+      editor.remove();
+      return;
+    }
+
+    editor = document.createElement("div");
+    editor.id = "walkRadiusInlineEditor";
+    editor.className = "walk-config-box";
+    editor.style.marginTop = "6px";
+    editor.style.marginBottom = "0";
+    editor.innerHTML = `
+      <div class="walk-config-header" style="margin-bottom:6px;">
+        <span style="font-size:0.78rem; font-weight:800;">Raio máximo a pé (m)</span>
+        <div class="walk-input-wrap">
+          <input type="number" id="inlineWalkDistInput" class="input-field walk-distance-input" min="0" max="1000" step="10" value="${state.maxWalkDistanceMeters}" />
+          <button type="button" class="btn btn-primary btn-sm" style="width:auto; padding:6px 10px;" onclick="app.applyInlineWalkDistance()">OK</button>
+        </div>
+      </div>
+      <div class="walk-presets">
+        ${[0, 80, 150, 250, 400].map((m) => `
+          <button type="button" class="filter-pill ${state.maxWalkDistanceMeters === m ? "active" : ""}" onclick="app.setMaxWalkDistance(${m}); app.closeInlineWalkEditor();">
+            ${m === 0 ? "Desativado" : m + "m"}
+          </button>
+        `).join("")}
+      </div>
+    `;
+    bar.insertAdjacentElement("afterend", editor);
+  }
+
+  function closeInlineWalkEditor() {
+    const editor = document.getElementById("walkRadiusInlineEditor");
+    if (editor) editor.remove();
+  }
+
+  function applyInlineWalkDistance() {
+    const input = document.getElementById("inlineWalkDistInput");
+    if (input) {
+      setMaxWalkDistance(input.value);
+      showToast(state.maxWalkDistanceMeters > 0
+        ? `Atalho a pé ajustado para ${state.maxWalkDistanceMeters}m.`
+        : "Atalho a pé desativado.");
+    }
+    closeInlineWalkEditor();
+  }
+
   function startActiveRoute() {
     if (!state.route || state.route.stops.length === 0) {
       showToast("Carregue uma planilha antes de iniciar.");
       return;
+    }
+    const walkInput = document.getElementById("maxWalkDistanceInput");
+    if (walkInput) {
+      const val = Math.max(0, Math.min(1000, parseInt(walkInput.value, 10) || 0));
+      state.maxWalkDistanceMeters = val;
+      localStorage.setItem(WALK_DIST_KEY, String(val));
     }
     state.started = true;
     state.finished = false;
@@ -284,11 +460,13 @@
     });
 
     const tabCurrent = document.getElementById("tabCurrentStop");
+    const tabLoading = document.getElementById("tabLoading");
     const tabAll = document.getElementById("tabAllStops");
     const tabOrganize = document.getElementById("tabOrganize");
     const tabMap = document.getElementById("tabMap");
 
     tabCurrent.classList.add("hidden");
+    if (tabLoading) tabLoading.classList.add("hidden");
     tabAll.classList.add("hidden");
     tabOrganize.classList.add("hidden");
     tabMap.classList.add("hidden");
@@ -296,6 +474,9 @@
     if (tabName === "current") {
       tabCurrent.classList.remove("hidden");
       renderCurrentStopView();
+    } else if (tabName === "loading") {
+      if (tabLoading) tabLoading.classList.remove("hidden");
+      renderLoadingOrderList();
     } else if (tabName === "all") {
       tabAll.classList.remove("hidden");
       renderFullStopsList();
@@ -332,9 +513,11 @@
       return;
     }
 
-    const total = state.route.totalPackages;
-    const done = Object.keys(state.results).length;
-    const pct = Math.round((done / total) * 100);
+    const total = state.route.totalPackages || 0;
+    const done = Object.values(state.results).filter(
+      (r) => r && (r.status === "delivered" || r.status === "failed")
+    ).length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
     badge.classList.remove("hidden");
     badge.textContent = `${done}/${total} (${pct}%)`;
@@ -343,6 +526,7 @@
 
   // --- HOME / SETUP SCREEN ---
   function renderHomePreview() {
+    syncWalkDistanceUI();
     const summaryBox = document.getElementById("homeRouteSummary");
     const listContainer = document.getElementById("homePreviewStopsList");
 
@@ -372,6 +556,13 @@
     if (btnFullRoute) {
       btnFullRoute.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
     }
+
+    const btnFirstWaze = document.getElementById("btnOpenFirstStopWaze");
+    if (btnFirstWaze && state.route.stops[0]) {
+      btnFirstWaze.href = RouteOptimizer.buildWazeUrl(state.route.stops[0]);
+    }
+
+    syncNavAppUI();
 
     listContainer.innerHTML = state.route.stops
       .map(
@@ -433,29 +624,19 @@
       noteEl.classList.add("hidden");
     }
 
-    // Google Maps Navigation Links
-    const btnNav = document.getElementById("btnNavigateSingle");
-    btnNav.href = RouteOptimizer.buildSingleStopGoogleMapsUrl(stop);
-
-    // Waze Navigation Link
+    // Waze Navigation Link (only visible when navApp === "waze")
     const btnWaze = document.getElementById("btnNavigateWaze");
     if (btnWaze) {
       btnWaze.href = RouteOptimizer.buildWazeUrl(stop);
     }
 
-    // Multi-stop Batch Button (Android Auto compatible)
-    const btnMulti = document.getElementById("btnNavigateMultiBatch");
-    const nextStopsBatchCount = Math.min(10, state.route.stops.length - state.activeStopIdx);
-    const endStop = state.route.stops[state.activeStopIdx + nextStopsBatchCount - 1];
-    btnMulti.innerHTML = `
-      ${renderIcon("navigation", 16)} Navegar Próximas ${nextStopsBatchCount} Paradas (#${stop.id} a #${endStop.id})
-    `;
-    btnMulti.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops, state.activeStopIdx, 10);
-
+    // Full Google Maps Route Link (only visible when navApp === "maps")
     const btnCurFull = document.getElementById("btnCurrentStopFullRoute");
     if (btnCurFull) {
       btnCurFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
     }
+
+    syncNavAppUI();
 
     // Arrival button state & Package List (Always visible as preview)
     const btnArrived = document.getElementById("btnMarkArrived");
@@ -485,7 +666,8 @@
       nextBox.classList.add("hidden");
     }
 
-    // Update GPS distance pill
+    // Update GPS distance pill & walk radius label
+    syncWalkDistanceUI();
     if (state.userCoords) {
       updateDistanceUI(state.userCoords.latitude, state.userCoords.longitude);
     }
@@ -560,9 +742,9 @@
     "Sem Acesso"
   ];
 
-  function renderPackageChecklist(stop) {
-    const container = document.getElementById("packageItemsContainer");
-    container.innerHTML = stop.items
+  function buildPackageChecklistHtml(stop) {
+    if (!stop || !stop.items) return "";
+    return stop.items
       .map((it, idx) => {
         const res = state.results[it.tn] || { status: "pending", reason: "" };
         const status = res.status || "pending";
@@ -576,6 +758,17 @@
         const aptTag = (it.apartmentInfo && it.apartmentInfo.hasApartment)
           ? `<span class="badge" style="background:rgba(238,77,45,0.12); color:var(--primary); font-weight:800; font-size:0.75rem; border:1px solid rgba(238,77,45,0.3);">🏢 ${it.apartmentInfo.displayLabel}</span>`
           : "";
+
+        const carLoc = state.packageLocations[it.tn] || "";
+        const carLocTag = carLoc
+          ? `<span class="badge" style="background:var(--surface); font-size:0.72rem;">📍 ${carLoc}</span>`
+          : "";
+
+        const extraDetails = [
+          it.recipient ? `<strong>Dest.:</strong> ${it.recipient}` : "",
+          it.sortCode ? `<strong>Setor:</strong> ${it.sortCode}` : "",
+          it.notes ? `<strong>Obs:</strong> ${it.notes}` : ""
+        ].filter(Boolean).join(" • ");
 
         const photoUrl = state.photos[it.tn] || null;
         const photoBoxHtml = photoUrl
@@ -596,7 +789,7 @@
           : `
             <div style="margin:4px 0 6px 0;">
               <button type="button" class="btn btn-outline btn-xs" onclick="app.capturePhotoForTn('${it.tn}')" style="font-size:0.75rem; padding:4px 8px; gap:4px;">
-                ${renderIcon("camera", 14)} Fotografar Pacote
+                ${renderIcon("camera", 14)} Tirar Foto
               </button>
             </div>
           `;
@@ -607,12 +800,14 @@
             <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
               <span class="tn-code">#${idx + 1} • ${it.tn}</span>
               ${aptTag}
+              ${carLocTag}
             </div>
             <span class="badge ${badgeClass}">
               ${badgeLabel}
             </span>
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
+          ${extraDetails ? `<div class="meta-text" style="font-size:0.76rem;">${extraDetails}</div>` : ""}
           ${photoBoxHtml}
           
           <!-- Seletor de 3 Estados: Entregue, Pendente e Não Entregue (Controle Opcional) -->
@@ -654,6 +849,24 @@
       .join("");
   }
 
+  function renderPackageChecklist(stop) {
+    const container = document.getElementById("packageItemsContainer");
+    if (!container) return;
+    container.innerHTML = buildPackageChecklistHtml(stop);
+  }
+
+  function refreshActiveChecklists() {
+    if (state.route && state.route.stops[state.activeStopIdx]) {
+      renderPackageChecklist(state.route.stops[state.activeStopIdx]);
+    }
+    if (state.walkChecklistOpen && state.pendingWalkCandidate) {
+      const walkContainer = document.getElementById("walkPackageItemsContainer");
+      if (walkContainer) {
+        walkContainer.innerHTML = buildPackageChecklistHtml(state.pendingWalkCandidate.stop);
+      }
+    }
+  }
+
   function markArrived(isAuto = false) {
     state.arrivedCurrent = true;
     saveState();
@@ -667,6 +880,7 @@
       playSuccessChime();
       showToast("📍 Chegada detectada via GPS! Lista de pacotes aberta.");
     }
+    checkNearbyWalkDelivery();
   }
 
   function setItemStatus(tn, targetStatus) {
@@ -689,8 +903,7 @@
     }
 
     saveState();
-    const stop = state.route.stops[state.activeStopIdx];
-    renderPackageChecklist(stop);
+    refreshActiveChecklists();
     updateHeader();
   }
 
@@ -700,8 +913,7 @@
     }
     state.results[tn].reason = reason;
     saveState();
-    const stop = state.route.stops[state.activeStopIdx];
-    renderPackageChecklist(stop);
+    refreshActiveChecklists();
   }
 
   function confirmStopAndNext() {
@@ -769,36 +981,43 @@
     let delivered = 0;
     let failed = 0;
     const details = [];
+    const allStops = [
+      ...(state.walkedStops || []),
+      ...(state.route ? state.route.stops : [])
+    ];
 
-    if (state.route) {
-      state.route.stops.forEach((s) => {
-        s.items.forEach((it) => {
-          const res = state.results[it.tn] || { status: "failed", reason: "Não visitado" };
-          if (res.status === "delivered") {
-            delivered += 1;
-          } else {
-            failed += 1;
-          }
-          details.push({
-            tn: it.tn || "",
-            address: it.address || "",
-            stopId: s.id || 0,
-            status: res.status || "delivered",
-            reason: res.reason || "",
-            time: res.time || ""
-          });
+    allStops.forEach((s) => {
+      s.items.forEach((it) => {
+        const res = state.results[it.tn] || { status: "failed", reason: "Não visitado" };
+        if (res.status === "delivered") {
+          delivered += 1;
+        } else {
+          failed += 1;
+        }
+        details.push({
+          tn: it.tn || "",
+          address: it.address || "",
+          stopId: s.originalId || s.id || 0,
+          status: res.status || "delivered",
+          reason: res.reason || "",
+          time: res.time || ""
         });
       });
-    }
+    });
+
+    const totalPackages = state.route ? Math.max(state.route.totalPackages, details.length) : details.length;
+    const successRate = totalPackages > 0 ? Math.round((delivered / totalPackages) * 100) : 0;
+    const firstStop = allStops[0];
 
     return {
       startTime: state.startTime || "-",
       endTime: state.endTime || "-",
-      totalStops: state.route ? state.route.stops.length : 0,
-      totalPackages: state.route ? state.route.totalPackages : 0,
+      totalStops: allStops.length,
+      totalPackages,
       deliveredCount: delivered,
       failedCount: failed,
-      region: state.route && state.route.stops[0] ? `${state.route.stops[0].bairro} • ${state.route.stops[0].city}` : "SPX Route",
+      successRate,
+      region: firstStop ? `${firstStop.bairro} • ${firstStop.city}` : "SPX Route",
       details
     };
   }
@@ -812,6 +1031,9 @@
     if (btnAllFull) {
       btnAllFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
     }
+    syncNavAppUI();
+
+    const isWaze = state.navApp === "waze";
 
     list.innerHTML = state.route.stops
       .map((s, idx) => {
@@ -819,19 +1041,23 @@
         const allDelivered = s.items.every((it) => state.results[it.tn] && state.results[it.tn].status === "delivered");
         const isDone = idx < state.activeStopIdx || allDelivered;
         const aptSummary = s.distinctAddresses > 1 ? ` • ${s.distinctAddresses} apts (~${s.distinctAddresses * 3} min)` : ` (~${(s.distinctAddresses || 1) * 3} min)`;
+        const wazeBtnHtml = isWaze
+          ? `<a href="${RouteOptimizer.buildWazeUrl(s)}" target="_blank" rel="noopener" class="btn btn-waze btn-xs" onclick="event.stopPropagation()">Waze</a>`
+          : "";
 
         return `
         <div class="stop-row-card ${isActive ? "active-stop" : ""} ${isDone && !isActive ? "done-stop" : ""}" onclick="app.jumpToStop(${idx})">
-          <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:10px; min-width:0;">
             <div class="stop-idx-badge">
               ${isDone && !isActive ? renderIcon("check", 16) : `#${s.id}`}
             </div>
-            <div>
+            <div style="min-width:0;">
               <div style="font-weight:700; font-size:0.9rem;">${s.title}</div>
               <div class="meta-text">${s.bairro} • ${s.items.length} ${s.items.length > 1 ? "pacotes" : "pacote"}${aptSummary}</div>
             </div>
           </div>
-          <div style="text-align:right;">
+          <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+            ${wazeBtnHtml}
             <span class="badge ${isActive ? "badge-primary" : isDone ? "badge-success" : ""}">
               ${isActive ? "Atual" : isDone ? "Concluída" : "Pendente"}
             </span>
@@ -918,8 +1144,12 @@
       pill.classList.toggle("active", pill.dataset.loadFilter === state.loadingFilter);
     });
 
-    const searchInput = document.getElementById("scannerSearchInput");
-    const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+    const loadingSearchInput = document.getElementById("loadingSearchInput");
+    const scannerSearchInput = document.getElementById("scannerSearchInput");
+    const rawQuery = (loadingSearchInput && loadingSearchInput.value.trim())
+      || (scannerSearchInput && scannerSearchInput.value.trim())
+      || "";
+    const query = rawQuery.toLowerCase();
 
     const filtered = allItems.filter((entry) => {
       const isChecked = !!(state.loadedPackages[entry.item.tn] || PackageScanner.isScanned(entry.item.tn));
@@ -934,8 +1164,13 @@
           entry.item.tn,
           entry.item.address,
           entry.item.complement,
+          entry.item.recipient,
+          entry.item.notes,
+          entry.item.sortCode,
+          state.packageLocations[entry.item.tn],
           entry.stop.title,
           entry.stop.bairro,
+          entry.stop.zipcode,
           `parada ${entry.stop.id}`,
           `#${entry.stop.id}`,
           `pacote ${entry.item.seq}`,
@@ -957,59 +1192,95 @@
     }
 
     container.innerHTML = filtered.map((entry) => {
-      const { item, stop, loadIndex } = entry;
+      const { item, stop, packageIndex } = entry;
       const isChecked = !!(state.loadedPackages[item.tn] || PackageScanner.isScanned(item.tn));
       const photoUrl = state.photos[item.tn] || null;
+      const carLocation = state.packageLocations[item.tn] || "";
 
-      const aptBadge = (item.apartmentInfo && item.apartmentInfo.hasApartment)
-        ? `<div class="load-apt-highlight">🏢 ${item.apartmentInfo.displayLabel}</div>`
+      const aptLabel = (item.apartmentInfo && item.apartmentInfo.hasApartment) ? item.apartmentInfo.displayLabel : "";
+      const aptBadge = aptLabel
+        ? `<div class="load-apt-highlight">🏢 ${aptLabel}</div>`
         : "";
 
-      const positionHint = loadIndex <= 3
-        ? "Fundo do carro"
-        : (loadIndex >= totalCount - 2 ? "Porta / Frente" : "Meio do carro");
+      const norm = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const hasComplement = item.complement && item.complement !== "Sem complemento";
+      const showComplement = hasComplement && (!aptLabel || norm(item.complement) !== norm(aptLabel));
+
+      const stopMultiLabel = stop.items.length > 1
+        ? ` • Pct ${packageIndex + 1}/${stop.items.length}`
+        : "";
+
+      const extraPills = [
+        item.recipient ? `<span class="load-extra-pill">👤 ${item.recipient}</span>` : "",
+        item.sortCode ? `<span class="load-extra-pill">🏷️ ${item.sortCode}</span>` : "",
+        item.notes ? `<span class="load-extra-pill">📝 ${item.notes}</span>` : ""
+      ].filter(Boolean).join("");
 
       return `
         <div class="loading-item-card ${isChecked ? "is-checked" : ""}" id="loadCard-${item.tn}">
           <div class="loading-item-top">
-            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-              <span class="load-order-pill" title="Posição no carregamento: ${positionHint}">
-                ${loadIndex}º carregar (${positionHint})
-              </span>
-              <span class="load-stop-badge">
-                PARADA #${stop.id}
-              </span>
-              <span class="load-seq-badge">
-                Seq #${item.seq}
-              </span>
+            <div class="load-top-badges">
+              <span class="load-seq-badge">Entrega #${item.seq}</span>
+              <span class="load-stop-badge">Parada #${stop.id}${stopMultiLabel}</span>
             </div>
 
-            <button type="button" class="btn-check-load ${isChecked ? "checked" : ""}" onclick="app.toggleItemChecked('${item.tn}')">
-              ${isChecked ? `${renderIcon("check", 14)} No Carro` : "Conferir"}
-            </button>
+            <label class="load-check-corner" title="Marcar como conferido no carro">
+              <input
+                type="checkbox"
+                class="load-check-input"
+                ${isChecked ? "checked" : ""}
+                onchange="app.toggleItemChecked('${item.tn}')"
+                aria-label="Conferir pacote ${item.tn}"
+              />
+            </label>
           </div>
 
           <div class="loading-item-body">
-            ${aptBadge}
-            <div class="load-address">
-              <strong>${stop.title}</strong>
-              <span class="meta-text">• ${stop.bairro}</span>
+            <div class="load-address-block">
+              <div class="load-address">${stop.title}</div>
+              <div class="load-subaddress">
+                <span>${stop.bairro}</span>
+                ${stop.zipcode ? `<span>• CEP ${stop.zipcode}</span>` : ""}
+              </div>
+              ${aptBadge}
             </div>
 
-            ${item.complement && item.complement !== "Sem complemento" ? `
+            ${showComplement ? `
               <div class="load-complement"><strong>Compl:</strong> ${item.complement}</div>
             ` : ""}
 
+            ${extraPills ? `<div class="load-meta-extras">${extraPills}</div>` : ""}
+
             <div class="load-tn-row">
-              <span class="load-tn">Rastreio: <strong>${item.tn}</strong></span>
-              ${item.atId ? `<span class="load-atid">ID: ${item.atId}</span>` : ""}
+              <div class="load-tn-codes">
+                <span class="load-tn">Rastreio: <strong>${item.tn}</strong></span>
+                ${item.atId ? `<span class="load-atid">ID: ${item.atId}</span>` : ""}
+              </div>
+              <button type="button" class="btn-copy-tn" onclick="app.copyTrackingCode('${item.tn}')">Copiar</button>
+            </div>
+
+            <div class="load-location-bar">
+              <span>${carLocation ? `📍 <strong>Local no carro:</strong> ${carLocation}` : `<span class="meta-text">📍 Local no carro não definido</span>`}</span>
+              <button type="button" class="btn-copy-tn" onclick="app.togglePackageLocationEditor('${item.tn}')">
+                ${carLocation ? "Alterar local" : "+ Local no carro"}
+              </button>
+            </div>
+            <div id="locEditor-${item.tn}" class="hidden" style="display:flex; flex-direction:column; gap:6px; padding-top:4px;">
+              <div style="display:flex; gap:6px;">
+                <input type="text" id="locInput-${item.tn}" class="input-field" style="padding:6px 8px; font-size:0.8rem;" placeholder="Ex: Banco frente, Caixa 1, Lado esq..." value="${carLocation.replace(/"/g, "&quot;")}" />
+                <button type="button" class="btn btn-primary btn-sm" style="width:auto; padding:6px 10px;" onclick="app.savePackageLocation('${item.tn}')">Salvar</button>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                ${["Banco frente", "Porta-malas esq.", "Porta-malas dir.", "Fundo", "Sacola/Caixa"].map((preset) => `
+                  <button type="button" class="filter-pill" style="font-size:0.7rem; padding:3px 8px;" onclick="app.setPackageLocationPreset('${item.tn}', '${preset}')">${preset}</button>
+                `).join("")}
+              </div>
             </div>
           </div>
 
-          <!-- Seção de Foto Aberta do Pacote -->
           <div class="loading-item-photo-bar">
             ${photoUrl ? `
-              <div class="load-photo-thumb-wrap" onclick="app.viewPhotoLarge('${photoUrl}', 'Parada #${stop.id} • Seq #${item.seq} • ${item.tn}')">
+              <div class="load-photo-thumb-wrap" onclick="app.viewPhotoLarge('${photoUrl}', 'Parada #${stop.id} • Entrega #${item.seq} • ${item.tn}')">
                 <img src="${photoUrl}" alt="Foto Pacote ${item.tn}" class="load-photo-thumb" />
                 <span class="load-photo-badge">${renderIcon("camera", 14)} Ver Foto</span>
               </div>
@@ -1018,13 +1289,58 @@
               </button>
             ` : `
               <button type="button" class="btn btn-outline btn-sm btn-load-photo" onclick="app.capturePhotoForTn('${item.tn}')">
-                ${renderIcon("camera", 15)} Tirar Foto Aberta
+                ${renderIcon("camera", 15)} Tirar Foto
               </button>
             `}
           </div>
         </div>
       `;
     }).join("");
+  }
+
+  function copyTrackingCode(tn) {
+    if (!tn || !navigator.clipboard) return;
+    navigator.clipboard.writeText(tn).then(() => {
+      showToast(`Código ${tn} copiado!`);
+    }).catch(() => {
+      showToast("Não foi possível copiar o código.");
+    });
+  }
+
+  function togglePackageLocationEditor(tn) {
+    const el = document.getElementById(`locEditor-${tn}`);
+    if (!el) return;
+    el.classList.toggle("hidden");
+    if (!el.classList.contains("hidden")) {
+      const inp = document.getElementById(`locInput-${tn}`);
+      if (inp) inp.focus();
+    }
+  }
+
+  function savePackageLocation(tn) {
+    const inp = document.getElementById(`locInput-${tn}`);
+    const val = inp ? inp.value.trim() : "";
+    if (val) {
+      state.packageLocations[tn] = val;
+    } else {
+      delete state.packageLocations[tn];
+    }
+    saveState();
+    renderLoadingOrderList();
+    if (state.activeTab === "current") {
+      renderCurrentStopView();
+    }
+    showToast(val ? `Local salvo: ${val}` : "Local removido.");
+  }
+
+  function setPackageLocationPreset(tn, preset) {
+    state.packageLocations[tn] = preset;
+    saveState();
+    renderLoadingOrderList();
+    if (state.activeTab === "current") {
+      renderCurrentStopView();
+    }
+    showToast(`Local definido: ${preset}`);
   }
 
   function setLoadingFilter(filter) {
@@ -1534,33 +1850,240 @@
       if (!state.arrivedCurrent && state.autoArrivedStopId !== stop.id) {
         state.autoArrivedStopId = stop.id;
         markArrived(true);
+      } else if (state.arrivedCurrent) {
+        checkNearbyWalkDelivery();
       }
       return;
     }
 
-    // Identificação de chegada em outra parada da rota (caso o entregador entregue em ordem alternativa)
-    for (let i = 0; i < state.route.stops.length; i++) {
-      if (i === state.activeStopIdx) continue;
-      const otherStop = state.route.stops[i];
-      const hasPending = otherStop.items.some(
-        (it) => !state.results[it.tn] || state.results[it.tn].status === "pending"
-      );
-      if (!hasPending) continue;
+    // Se já está em atendimento no local atual, verifica entregas próximas a pé antes de qualquer troca automática
+    if (state.arrivedCurrent) {
+      checkNearbyWalkDelivery();
+    } else {
+      // Identificação de chegada em outra parada da rota (caso o entregador chegue diretamente nela)
+      for (let i = 0; i < state.route.stops.length; i++) {
+        if (i === state.activeStopIdx) continue;
+        const otherStop = state.route.stops[i];
+        const hasPending = otherStop.items.some(
+          (it) => !state.results[it.tn] || state.results[it.tn].status === "pending"
+        );
+        if (!hasPending) continue;
 
-      const otherDist = Math.round(RouteOptimizer.haversineMeters(lat, lon, otherStop.lat, otherStop.lon));
-      if (otherDist <= 45) {
-        state.activeStopIdx = i;
-        state.autoArrivedStopId = otherStop.id;
-        if (pill) pill.classList.add("gps-near");
-        if (textEl) textEl.textContent = `📍 Chegou na Parada #${otherStop.id}! (${otherDist}m)`;
-        markArrived(true);
-        return;
+        const otherDist = Math.round(RouteOptimizer.haversineMeters(lat, lon, otherStop.lat, otherStop.lon));
+        if (otherDist <= 45) {
+          state.activeStopIdx = i;
+          state.autoArrivedStopId = otherStop.id;
+          if (pill) pill.classList.add("gps-near");
+          if (textEl) textEl.textContent = `📍 Chegou na Parada #${otherStop.id}! (${otherDist}m)`;
+          markArrived(true);
+          return;
+        }
       }
     }
 
     if (pill) pill.classList.remove("gps-near");
     const distStr = dist >= 1000 ? `${(dist / 1000).toFixed(2)} km` : `${dist} m`;
     if (textEl) textEl.textContent = `Distância até parada #${stop.id}: ${distStr}`;
+  }
+
+  // --- DYNAMIC WALKING SHORTCUT DELIVERY ---
+  function getWalkOriginCoords(currentStop) {
+    if (state.userCoords && state.userCoords.latitude && state.userCoords.longitude) {
+      if (currentStop && currentStop.lat && currentStop.lon) {
+        const d = RouteOptimizer.haversineMeters(
+          state.userCoords.latitude,
+          state.userCoords.longitude,
+          currentStop.lat,
+          currentStop.lon
+        );
+        if (d <= 300) {
+          return { lat: state.userCoords.latitude, lon: state.userCoords.longitude };
+        }
+      } else {
+        return { lat: state.userCoords.latitude, lon: state.userCoords.longitude };
+      }
+    }
+    if (currentStop && currentStop.lat && currentStop.lon) {
+      return { lat: currentStop.lat, lon: currentStop.lon };
+    }
+    return null;
+  }
+
+  function checkNearbyWalkDelivery() {
+    if (!state.route || !state.started || state.finished) return;
+    if (!state.maxWalkDistanceMeters || state.maxWalkDistanceMeters <= 0) return;
+
+    const modal = document.getElementById("modalWalkDelivery");
+    if (modal && !modal.classList.contains("hidden")) return;
+
+    const currentStop = state.route.stops[state.activeStopIdx];
+    if (!currentStop) return;
+
+    // Só sugere atalho a pé quando o entregador já está em uma entrega (chegou no local X ou GPS <= 65m)
+    let isAtDeliveryLocation = state.arrivedCurrent;
+    if (!isAtDeliveryLocation && state.userCoords && currentStop.lat && currentStop.lon) {
+      const distToCurrent = RouteOptimizer.haversineMeters(
+        state.userCoords.latitude,
+        state.userCoords.longitude,
+        currentStop.lat,
+        currentStop.lon
+      );
+      if (distToCurrent <= 65) isAtDeliveryLocation = true;
+    }
+    if (!isAtDeliveryLocation) return;
+
+    const origin = getWalkOriginCoords(currentStop);
+    if (!origin) return;
+
+    const candidate = RouteOptimizer.findNearbyWalkCandidate(
+      state.route.stops,
+      state.activeStopIdx,
+      origin,
+      state.maxWalkDistanceMeters,
+      state.results,
+      state.dismissedWalkKeys
+    );
+
+    if (!candidate) return;
+
+    state.pendingWalkCandidate = candidate;
+    state.walkChecklistOpen = false;
+    openWalkPromptModal(candidate);
+  }
+
+  function openWalkPromptModal(candidate) {
+    const { stop, distanceMeters } = candidate;
+    const summaryBox = document.getElementById("walkCandidateSummary");
+    const promptStep = document.getElementById("walkPromptStep");
+    const checklistStep = document.getElementById("walkChecklistStep");
+
+    if (promptStep) promptStep.classList.remove("hidden");
+    if (checklistStep) checklistStep.classList.add("hidden");
+
+    if (summaryBox) {
+      const tns = stop.items.map((it) => it.tn).join(", ");
+      const complements = stop.items
+        .map((it) => (it.apartmentInfo && it.apartmentInfo.displayLabel) || it.complement)
+        .filter((c) => c && c !== "Sem complemento")
+        .join(" • ");
+
+      summaryBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="load-stop-badge">PARADA #${stop.id}</span>
+          <span class="badge badge-success">🚶 ~${distanceMeters}m de você</span>
+        </div>
+        <div style="font-weight:800; font-size:1rem;">${stop.title}</div>
+        <div class="meta-text">${stop.bairro} • ${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}</div>
+        ${complements ? `<div style="font-size:0.8rem;"><strong>Detalhe:</strong> ${complements}</div>` : ""}
+        <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">Rastreio: ${tns}</div>
+      `;
+    }
+
+    playSuccessChime();
+    openModal("modalWalkDelivery");
+  }
+
+  function acceptWalkDelivery() {
+    if (!state.pendingWalkCandidate) return;
+    state.walkChecklistOpen = true;
+
+    const { stop, distanceMeters } = state.pendingWalkCandidate;
+    const promptStep = document.getElementById("walkPromptStep");
+    const checklistStep = document.getElementById("walkChecklistStep");
+    const header = document.getElementById("walkChecklistHeader");
+    const container = document.getElementById("walkPackageItemsContainer");
+
+    if (promptStep) promptStep.classList.add("hidden");
+    if (checklistStep) checklistStep.classList.remove("hidden");
+    if (header) {
+      header.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+          <div>
+            <div class="kicker">Entrega a Pé • ~${distanceMeters}m</div>
+            <div style="font-weight:800; font-size:1rem;">#${stop.id} ${stop.title}</div>
+          </div>
+          <span class="badge badge-primary">${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}</span>
+        </div>
+      `;
+    }
+    if (container) {
+      container.innerHTML = buildPackageChecklistHtml(stop);
+    }
+  }
+
+  function declineWalkDelivery() {
+    if (state.pendingWalkCandidate && state.pendingWalkCandidate.pairKey) {
+      state.dismissedWalkKeys[state.pendingWalkCandidate.pairKey] = true;
+    }
+    state.pendingWalkCandidate = null;
+    state.walkChecklistOpen = false;
+    closeModal("modalWalkDelivery");
+  }
+
+  function cancelWalkDelivery() {
+    state.walkChecklistOpen = false;
+    declineWalkDelivery();
+  }
+
+  function confirmWalkDelivery() {
+    if (!state.pendingWalkCandidate || !state.route) return;
+    const { stop, stopIndex } = state.pendingWalkCandidate;
+
+    stop.items.forEach((it) => {
+      if (!state.results[it.tn] || state.results[it.tn].status === "pending") {
+        state.results[it.tn] = {
+          status: "delivered",
+          reason: "",
+          time: new Date().toLocaleTimeString("pt-BR")
+        };
+      }
+    });
+
+    const currentStop = state.route.stops[state.activeStopIdx];
+    const originPos = getWalkOriginCoords(currentStop);
+    const recalc = RouteOptimizer.recalculateRouteAfterWalk(
+      state.route.stops,
+      state.activeStopIdx,
+      stopIndex,
+      originPos
+    );
+
+    if (!recalc) return;
+
+    state.walkedStops.push(recalc.walkedStop);
+    const walkedPackageCount = state.walkedStops.reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
+
+    state.route.stops = recalc.stops;
+    state.route.streetsCount = recalc.metrics.streetsCount;
+    state.route.totalDistinctAddresses = recalc.metrics.totalDistinctAddresses;
+    state.route.serviceMinutes = recalc.metrics.serviceMinutes;
+    state.route.transitMinutes = recalc.metrics.transitMinutes;
+    state.route.totalDistanceKm = recalc.metrics.totalDistanceKm;
+    state.route.estimatedMinutes = recalc.metrics.estimatedMinutes;
+    state.route.estimatedDurationStr = recalc.metrics.estimatedDurationStr;
+    state.route.totalPackages = recalc.metrics.totalPackages + walkedPackageCount;
+    state.activeStopIdx = recalc.newActiveIdx;
+
+    state.pendingWalkCandidate = null;
+    state.walkChecklistOpen = false;
+    closeModal("modalWalkDelivery");
+    saveState();
+
+    playSuccessChime();
+    updateHeader();
+    showToast(`🚶 Entrega #${recalc.walkedStop.originalId || recalc.walkedStop.id} adiantada a pé! Rota recalculada.`);
+
+    if (state.route.stops.length === 0) {
+      finishRoute();
+      return;
+    }
+
+    renderCurrentStopView();
+    renderLoadingOrderList();
+    if (state.activeTab === "all") renderFullStopsList();
+    if (state.map) updateMapMarkers();
+
+    checkNearbyWalkDelivery();
   }
 
   // --- REPORT SCREEN ---
@@ -1666,6 +2189,11 @@
     }
     state.photos = {};
     state.loadedPackages = {};
+    state.packageLocations = {};
+    state.walkedStops = [];
+    state.dismissedWalkKeys = {};
+    state.pendingWalkCandidate = null;
+    state.walkChecklistOpen = false;
     state.started = false;
     state.finished = false;
     state.activeStopIdx = 0;
@@ -2002,10 +2530,8 @@
     initSwipeGestures();
     initQuickSearch();
 
-    // PWA Service Worker & Online detection
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
-    }
+    // PWA Service Worker & Update Detection + Online detection
+    initServiceWorkerUpdates();
     window.addEventListener("online", updateOnlineStatus);
     window.addEventListener("offline", updateOnlineStatus);
     updateOnlineStatus();
@@ -2174,6 +2700,40 @@
       });
     }
 
+    const loadingSearch = document.getElementById("loadingSearchInput");
+    if (loadingSearch) {
+      loadingSearch.addEventListener("input", () => {
+        renderLoadingOrderList();
+      });
+    }
+
+    const maxWalkInput = document.getElementById("maxWalkDistanceInput");
+    if (maxWalkInput) {
+      maxWalkInput.addEventListener("input", (e) => {
+        setMaxWalkDistance(e.target.value);
+      });
+    }
+
+    const walkPresetPills = document.getElementById("walkPresetPills");
+    if (walkPresetPills) {
+      walkPresetPills.addEventListener("click", (e) => {
+        const pill = e.target.closest("[data-walk-meters]");
+        if (!pill) return;
+        setMaxWalkDistance(pill.dataset.walkMeters);
+      });
+    }
+
+    const navAppPills = document.getElementById("navAppPills");
+    if (navAppPills) {
+      navAppPills.addEventListener("click", (e) => {
+        const pill = e.target.closest("[data-nav-app]");
+        if (!pill) return;
+        setNavApp(pill.dataset.navApp);
+      });
+    }
+
+    syncNavAppUI();
+
     // Input de captura de foto do pacote
     const photoFileInput = document.getElementById("packagePhotoFileInput");
     if (photoFileInput) {
@@ -2277,6 +2837,95 @@
     openModal("modalInstallApp");
   }
 
+  // --- PWA VERSION UPDATE DETECTION & USER-CONFIRMED AUTO-UPDATE ---
+  function showUpdateAvailableBanner(waitingWorker) {
+    if (!waitingWorker) return;
+    swWaitingWorker = waitingWorker;
+    const banner = document.getElementById("pwaUpdateBanner");
+    const menuUpdate = document.getElementById("menuItemUpdateApp");
+    if (banner) banner.classList.remove("hidden");
+    if (menuUpdate) menuUpdate.classList.remove("hidden");
+  }
+
+  function dismissPwaUpdate() {
+    const banner = document.getElementById("pwaUpdateBanner");
+    if (banner) banner.classList.add("hidden");
+    showToast("Você pode atualizar depois pelo menu da conta.");
+  }
+
+  function applyPwaUpdate() {
+    if (!swWaitingWorker) {
+      window.location.reload();
+      return;
+    }
+    closeDropdown();
+    saveState();
+
+    const applyBtn = document.getElementById("btnApplyPwaUpdate");
+    if (applyBtn) {
+      applyBtn.disabled = true;
+      applyBtn.textContent = "Atualizando...";
+    }
+    showToast("Atualizando para a nova versão...");
+
+    swWaitingWorker.postMessage({ type: "SKIP_WAITING" });
+
+    // Garante recarregamento mesmo se controllerchange atrasar em algum navegador mobile
+    setTimeout(() => {
+      if (!swRefreshing) {
+        swRefreshing = true;
+        window.location.reload();
+      }
+    }, 2500);
+  }
+
+  function monitorRegistrationUpdates(reg) {
+    if (!reg) return;
+
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      showUpdateAvailableBanner(reg.waiting);
+    }
+
+    reg.addEventListener("updatefound", () => {
+      const newWorker = reg.installing;
+      if (!newWorker) return;
+      newWorker.addEventListener("statechange", () => {
+        if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+          showUpdateAvailableBanner(newWorker);
+        }
+      });
+    });
+  }
+
+  function initServiceWorkerUpdates() {
+    if (!("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (swRefreshing) return;
+      swRefreshing = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" })
+      .then((reg) => {
+        monitorRegistrationUpdates(reg);
+
+        const checkUpdate = () => {
+          if (navigator.onLine) {
+            reg.update().catch(() => {});
+          }
+        };
+
+        checkUpdate();
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") checkUpdate();
+        });
+        window.addEventListener("online", checkUpdate);
+        setInterval(checkUpdate, 30 * 60 * 1000);
+      })
+      .catch(() => {});
+  }
+
   // Expose global app methods
   window.app = {
     setItemStatus,
@@ -2288,6 +2937,22 @@
     showPackageModal,
     setLoadingFilter,
     toggleItemChecked,
+    copyTrackingCode,
+    togglePackageLocationEditor,
+    savePackageLocation,
+    setPackageLocationPreset,
+    setMaxWalkDistance,
+    setNavApp,
+    toggleNavApp,
+    promptAdjustWalkDistance,
+    closeInlineWalkEditor,
+    applyInlineWalkDistance,
+    acceptWalkDelivery,
+    declineWalkDelivery,
+    cancelWalkDelivery,
+    confirmWalkDelivery,
+    applyPwaUpdate,
+    dismissPwaUpdate,
     triggerPackagePhotoCapture,
     capturePhotoForTn,
     deleteCurrentPackagePhoto,
