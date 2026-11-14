@@ -67,7 +67,8 @@
       gpsUser: null,
       allStops: [],
       allHubs: [],
-      animatedVehicle: null
+      animatedVehicle: null,
+      routeHighlightLayers: []
     }
   };
 
@@ -2546,7 +2547,7 @@
     totalDistance: 0,
     segments: [],
     startTime: null,
-    durationMs: 14000
+    durationMs: 8000
   };
 
   function toggleMapItemsDrawer() {
@@ -2945,6 +2946,7 @@
     updateMapNavHud();
     syncNavAppUI();
     prepareRouteSegments(pathLatlngs);
+    startRouteAnimation();
   }
 
   function prepareRouteSegments(latlngs) {
@@ -2966,53 +2968,93 @@
     }
   }
 
+  function extractRouteSlice(startDist, endDist) {
+    const clampedStart = Math.max(0, startDist);
+    const clampedEnd = Math.min(mapAnim.totalDistance, endDist);
+    if (clampedEnd <= clampedStart || mapAnim.segments.length === 0) return [];
+
+    const pts = [];
+    for (let i = 0; i < mapAnim.segments.length; i++) {
+      const seg = mapAnim.segments[i];
+      const segStart = seg.startDist;
+      const segEnd = seg.startDist + seg.dist;
+      if (segEnd < clampedStart) continue;
+      if (segStart > clampedEnd) break;
+
+      const localStart = Math.max(clampedStart, segStart);
+      const localEnd = Math.min(clampedEnd, segEnd);
+      const f1 = seg.dist > 0 ? (localStart - segStart) / seg.dist : 0;
+      const f2 = seg.dist > 0 ? (localEnd - segStart) / seg.dist : 1;
+
+      const pStart = [
+        seg.p1[0] + f1 * (seg.p2[0] - seg.p1[0]),
+        seg.p1[1] + f1 * (seg.p2[1] - seg.p1[1])
+      ];
+      const pEnd = [
+        seg.p1[0] + f2 * (seg.p2[0] - seg.p1[0]),
+        seg.p1[1] + f2 * (seg.p2[1] - seg.p1[1])
+      ];
+
+      if (pts.length === 0) {
+        pts.push(pStart);
+      }
+      pts.push(pEnd);
+    }
+    return pts;
+  }
+
   function startRouteAnimation() {
     stopRouteAnimation();
-    if (!state.map || !state.route || state.route.stops.length < 2 || mapAnim.totalDistance <= 0) return;
+    if (!state.map || !state.route || state.route.stops.length < 1 || mapAnim.segments.length === 0 || mapAnim.totalDistance <= 0) return;
 
-    const hasRoadGeo = Array.isArray(state.route.routeGeometry) && state.route.routeGeometry.length > 1;
-    const latlngs = hasRoadGeo ? state.route.routeGeometry : state.route.stops.map((s) => [s.lat, s.lon]);
-
-    if (state.markers.animatedVehicle) {
-      state.map.removeLayer(state.markers.animatedVehicle);
-    }
-
-    const routeLightIcon = L.divIcon({
-      className: "map-vehicle-icon-wrap",
-      html: `<div class="map-route-light"></div>`,
-      iconSize: [14, 14],
-      iconAnchor: [7, 7]
-    });
-
-    state.markers.animatedVehicle = L.marker([latlngs[0][0], latlngs[0][1]], {
-      icon: routeLightIcon,
+    const highlightOuter = L.polyline([], {
+      color: "#fde047",
+      weight: 8,
+      opacity: 0.28,
+      lineCap: "round",
+      lineJoin: "round",
       interactive: false,
-      zIndexOffset: 1200
+      className: "route-highlight-outer"
     }).addTo(state.map);
 
+    const highlightMid = L.polyline([], {
+      color: "#fef08a",
+      weight: 5,
+      opacity: 0.55,
+      lineCap: "round",
+      lineJoin: "round",
+      interactive: false,
+      className: "route-highlight-mid"
+    }).addTo(state.map);
+
+    const highlightCore = L.polyline([], {
+      color: "#ffffff",
+      weight: 3,
+      opacity: 0.82,
+      lineCap: "round",
+      lineJoin: "round",
+      interactive: false,
+      className: "route-highlight-core"
+    }).addTo(state.map);
+
+    state.markers.routeHighlightLayers = [highlightOuter, highlightMid, highlightCore];
     mapAnim.startTime = performance.now();
 
+    const windowLen = Math.max(mapAnim.totalDistance * 0.14, 0.0008);
+    const totalSweep = mapAnim.totalDistance + windowLen;
+
     function step(now) {
-      if (!state.map || !state.markers.animatedVehicle) return;
+      if (!state.map || !state.markers.routeHighlightLayers || state.markers.routeHighlightLayers.length === 0) return;
 
       const elapsed = (now - mapAnim.startTime) % mapAnim.durationMs;
       const progress = elapsed / mapAnim.durationMs;
-      const targetDist = progress * mapAnim.totalDistance;
+      const headDist = progress * totalSweep;
+      const tailDist = headDist - windowLen;
 
-      let curLat = latlngs[0][0];
-      let curLon = latlngs[0][1];
+      highlightOuter.setLatLngs(extractRouteSlice(tailDist, headDist));
+      highlightMid.setLatLngs(extractRouteSlice(tailDist + windowLen * 0.2, headDist - windowLen * 0.08));
+      highlightCore.setLatLngs(extractRouteSlice(tailDist + windowLen * 0.42, headDist - windowLen * 0.15));
 
-      for (let i = 0; i < mapAnim.segments.length; i++) {
-        const seg = mapAnim.segments[i];
-        if (targetDist >= seg.startDist && targetDist <= seg.startDist + seg.dist) {
-          const frac = seg.dist > 0 ? (targetDist - seg.startDist) / seg.dist : 0;
-          curLat = seg.p1[0] + frac * (seg.p2[0] - seg.p1[0]);
-          curLon = seg.p1[1] + frac * (seg.p2[1] - seg.p1[1]);
-          break;
-        }
-      }
-
-      state.markers.animatedVehicle.setLatLng([curLat, curLon]);
       mapAnim.frameId = requestAnimationFrame(step);
     }
 
@@ -3023,6 +3065,16 @@
     if (mapAnim.frameId) {
       cancelAnimationFrame(mapAnim.frameId);
       mapAnim.frameId = null;
+    }
+    if (state.map && state.markers.routeHighlightLayers && state.markers.routeHighlightLayers.length > 0) {
+      state.markers.routeHighlightLayers.forEach((layer) => {
+        if (layer) state.map.removeLayer(layer);
+      });
+    }
+    state.markers.routeHighlightLayers = [];
+    if (state.map && state.markers.animatedVehicle) {
+      state.map.removeLayer(state.markers.animatedVehicle);
+      state.markers.animatedVehicle = null;
     }
   }
 

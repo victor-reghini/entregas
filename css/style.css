@@ -1171,12 +1171,17 @@ main.app-main {
   animation: vehicleGlow 2s infinite ease-in-out;
 }
 
-.map-route-light {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #ffffff 25%, #fde047 65%, #f97316 100%);
-  box-shadow: 0 0 8px 3px rgba(253, 224, 71, 0.9), 0 0 16px 6px rgba(238, 77, 45, 0.65);
+.route-highlight-outer {
+  filter: blur(2.5px);
+  pointer-events: none;
+}
+
+.route-highlight-mid {
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.route-highlight-core {
   pointer-events: none;
 }
 
