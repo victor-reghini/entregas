@@ -1757,4 +1757,106 @@ main.app-main {
   color: var(--primary);
 }
 
+/* ==========================================
+   MAPA DE NAVEGAÇÃO NAS VIAS & PARADAS A PÉ
+   ========================================== */
+.walk-stop-notice {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--success-text);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-top: 8px;
+  line-height: 1.35;
+}
+
+.walk-stop-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--success-text);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-top: 3px;
+}
+
+.route-pin-walk {
+  background: #0d9488;
+}
+
+.map-nav-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.map-nav-hud-turn {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.map-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.map-legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+
+.map-legend-drive {
+  background: #ee4d2d;
+}
+
+.map-legend-walk {
+  border-top: 3px dashed #10b981;
+  height: 0;
+}
+
+.map-car-sync-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.map-gps-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.28);
+}
+
+#btnToggleFollowGps.active {
+  background: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+
 

@@ -253,7 +253,156 @@ const RouteOptimizer = (function () {
       .trim();
   }
 
-  // Chain stops by street (monotonic door numbering, nearest-neighbor across streets)
+  // Sort stops on the same street by physical road progression rather than door number
+  function orderStopsAlongStreetGeo(streetStops) {
+    if (!streetStops || streetStops.length <= 1) return streetStops ? [...streetStops] : [];
+    const remaining = streetStops.map((s) => s);
+
+    // Find physical endpoint pair with largest separation
+    let startIdx = 0;
+    let bestSep = -1;
+    for (let i = 0; i < remaining.length; i++) {
+      for (let j = i + 1; j < remaining.length; j++) {
+        const d = haversineMeters(remaining[i].lat, remaining[i].lon, remaining[j].lat, remaining[j].lon);
+        if (d > bestSep) {
+          bestSep = d;
+          startIdx = i;
+        }
+      }
+    }
+
+    if (bestSep <= 0) {
+      return [...streetStops].sort((a, b) => a.number - b.number);
+    }
+
+    const ordered = [remaining.splice(startIdx, 1)[0]];
+    while (remaining.length > 0) {
+      const cur = ordered[ordered.length - 1];
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = haversineMeters(cur.lat, cur.lon, remaining[i].lat, remaining[i].lon);
+        if (d < bestDist) {
+          bestDist = d;
+          bestIdx = i;
+        }
+      }
+      ordered.push(remaining.splice(bestIdx, 1)[0]);
+    }
+    return ordered;
+  }
+
+  // Group nearby stops within walkRadiusMeters around dense parking anchors
+  function buildWalkClusters(stops, walkRadiusMeters = 0) {
+    if (!stops || stops.length === 0) return [];
+    const radius = Math.max(0, parseInt(walkRadiusMeters, 10) || 0);
+
+    const cloned = stops.map((s) => ({
+      ...s,
+      isWalkStop: false,
+      walkFromStopId: null,
+      walkAnchorTitle: "",
+      walkDistanceMeters: 0,
+      walkClusterSize: 1
+    }));
+
+    if (radius <= 0) {
+      return cloned.map((s) => ({ anchor: s, stops: [s] }));
+    }
+
+    const withCoords = [];
+    const withoutCoords = [];
+    cloned.forEach((s) => {
+      if (s.lat && s.lon) withCoords.push(s);
+      else withoutCoords.push(s);
+    });
+
+    const assigned = new Set();
+    const clusters = [];
+
+    while (assigned.size < withCoords.length) {
+      let bestIdx = -1;
+      let bestNeighbors = [];
+
+      for (let i = 0; i < withCoords.length; i++) {
+        if (assigned.has(i)) continue;
+        const neighbors = [];
+        for (let j = 0; j < withCoords.length; j++) {
+          if (i === j || assigned.has(j)) continue;
+          const d = haversineMeters(
+            withCoords[i].lat,
+            withCoords[i].lon,
+            withCoords[j].lat,
+            withCoords[j].lon
+          );
+          if (d <= radius) neighbors.push(j);
+        }
+        if (neighbors.length > bestNeighbors.length || bestIdx === -1) {
+          bestIdx = i;
+          bestNeighbors = neighbors;
+        }
+      }
+
+      if (bestIdx === -1) break;
+      assigned.add(bestIdx);
+      const anchor = withCoords[bestIdx];
+      const clusterIndices = [];
+      bestNeighbors.forEach((j) => {
+        assigned.add(j);
+        clusterIndices.push(j);
+      });
+
+      // Chain walk stops from anchor by nearest walking hop
+      const clusterStops = [anchor];
+      const pendingWalk = clusterIndices.map((idx) => withCoords[idx]);
+      let walkPos = anchor;
+      while (pendingWalk.length > 0) {
+        let nearIdx = 0;
+        let nearDist = Infinity;
+        for (let k = 0; k < pendingWalk.length; k++) {
+          const d = haversineMeters(walkPos.lat, walkPos.lon, pendingWalk[k].lat, pendingWalk[k].lon);
+          if (d < nearDist) {
+            nearDist = d;
+            nearIdx = k;
+          }
+        }
+        const nextWalk = pendingWalk.splice(nearIdx, 1)[0];
+        nextWalk.isWalkStop = true;
+        nextWalk.walkAnchorTitle = anchor.title;
+        nextWalk.walkDistanceMeters = Math.round(
+          haversineMeters(anchor.lat, anchor.lon, nextWalk.lat, nextWalk.lon)
+        );
+        clusterStops.push(nextWalk);
+        walkPos = nextWalk;
+      }
+
+      clusterStops.forEach((st) => {
+        st.walkClusterSize = clusterStops.length;
+      });
+      clusters.push({ anchor, stops: clusterStops });
+    }
+
+    withoutCoords.forEach((s) => clusters.push({ anchor: s, stops: [s] }));
+    return clusters;
+  }
+
+  function buildWalkSegments(stops) {
+    if (!stops || stops.length === 0) return [];
+    const segments = [];
+    let activeAnchor = null;
+    stops.forEach((s) => {
+      if (!s.isWalkStop) {
+        activeAnchor = s;
+      } else if (activeAnchor && activeAnchor.lat && activeAnchor.lon && s.lat && s.lon) {
+        s.walkFromStopId = activeAnchor.id || null;
+        s.walkAnchorTitle = activeAnchor.title || s.walkAnchorTitle;
+        segments.push([[activeAnchor.lat, activeAnchor.lon], [s.lat, s.lon]]);
+      }
+    });
+    return segments;
+  }
+
+  // Chain clusters offline by street geography (not relying on monotonic door numbering)
   function orderStopsByStreetChain(stops, startPos = null) {
     if (!stops || stops.length === 0) return [];
 
@@ -265,16 +414,16 @@ const RouteOptimizer = (function () {
 
     const unvisited = [];
     streetsMap.forEach((streetStops, streetName) => {
-      const sortedAsc = [...streetStops].sort((a, b) => a.number - b.number);
-      const sortedDesc = [...sortedAsc].reverse();
+      const sortedFwd = orderStopsAlongStreetGeo(streetStops);
+      const sortedRev = [...sortedFwd].reverse();
       unvisited.push({
         street: streetName,
-        asc: sortedAsc,
-        desc: sortedDesc,
-        startAsc: sortedAsc[0],
-        endAsc: sortedAsc[sortedAsc.length - 1],
-        startDesc: sortedDesc[0],
-        endDesc: sortedDesc[sortedDesc.length - 1]
+        asc: sortedFwd,
+        desc: sortedRev,
+        startAsc: sortedFwd[0],
+        endAsc: sortedFwd[sortedFwd.length - 1],
+        startDesc: sortedRev[0],
+        endDesc: sortedRev[sortedRev.length - 1]
       });
     });
 
@@ -368,11 +517,298 @@ const RouteOptimizer = (function () {
     };
   }
 
-  // Optimize and build stops
-  function buildOptimizedRoute(rows, options = {}) {
-    if (!rows || rows.length === 0) return { stops: [], totalPackages: 0, streets: [] };
+  function flattenClustersWithAnchorChain(clusters, orderedAnchors) {
+    const clusterByAnchor = new Map();
+    clusters.forEach((c) => clusterByAnchor.set(c.anchor, c));
+    const orderedStops = [];
+    orderedAnchors.forEach((a) => {
+      const cluster = clusterByAnchor.get(a);
+      if (cluster) {
+        cluster.stops.forEach((st) => orderedStops.push(st));
+      } else {
+        orderedStops.push(a);
+      }
+    });
+    return orderedStops;
+  }
 
-    // 1. Group into physical stops by (Normalized Street + Number)
+  function finalizeOrderedStops(orderedStops, reverse = false, roadData = null) {
+    if (reverse) {
+      orderedStops.reverse();
+    }
+
+    let packageSeq = 0;
+    orderedStops.forEach((s, idx) => {
+      s.id = idx + 1;
+      s.originalId = s.id;
+      sortItemsByApartment(s.items);
+      s.distinctAddresses = countDistinctAddresses(s.items);
+      s.estimatedMinutes = s.distinctAddresses * 3;
+
+      s.items.forEach((it) => {
+        packageSeq += 1;
+        it.seq = packageSeq;
+        it.stopId = s.id;
+      });
+    });
+
+    const walkSegments = buildWalkSegments(orderedStops);
+    const metrics = calculateRouteMetrics(orderedStops);
+
+    if (roadData && roadData.roadDistanceMeters > 0) {
+      metrics.totalDistanceKm = parseFloat((roadData.roadDistanceMeters / 1000).toFixed(1));
+      metrics.transitMinutes = Math.max(1, Math.round(roadData.roadDurationSeconds / 60));
+      metrics.estimatedMinutes = metrics.serviceMinutes + metrics.transitMinutes;
+      metrics.estimatedDurationStr = formatDuration(metrics.estimatedMinutes);
+    }
+
+    return {
+      stops: orderedStops,
+      walkSegments,
+      routeGeometry: roadData && roadData.routeGeometry ? roadData.routeGeometry : null,
+      maneuvers: roadData && roadData.maneuvers ? roadData.maneuvers : [],
+      usedRoadRouting: !!(roadData && roadData.usedRoadRouting),
+      ...metrics
+    };
+  }
+
+  // Asymmetric Open-Path TSP for directed driving-time matrices (respects one-way streets)
+  function solveAsymmetricOpenTsp(durations, fixedStartIdx = null) {
+    const n = durations.length;
+    if (n <= 1) return n === 1 ? [0] : [];
+
+    const edgeCost = (u, v) => {
+      const d = durations[u] && durations[u][v];
+      return typeof d === "number" && Number.isFinite(d) ? d : 1e7;
+    };
+
+    const tourCost = (order) => {
+      let sum = 0;
+      for (let i = 0; i < order.length - 1; i++) {
+        sum += edgeCost(order[i], order[i + 1]);
+      }
+      return sum;
+    };
+
+    const runNN = (start) => {
+      const used = new Uint8Array(n);
+      const order = [start];
+      used[start] = 1;
+      while (order.length < n) {
+        const cur = order[order.length - 1];
+        let bestNext = -1;
+        let bestCost = Infinity;
+        for (let j = 0; j < n; j++) {
+          if (used[j]) continue;
+          const c = edgeCost(cur, j);
+          if (c < bestCost) {
+            bestCost = c;
+            bestNext = j;
+          }
+        }
+        order.push(bestNext);
+        used[bestNext] = 1;
+      }
+      return order;
+    };
+
+    let bestOrder = null;
+    let bestCost = Infinity;
+    const startCandidates = fixedStartIdx !== null ? [fixedStartIdx] : Array.from({ length: n }, (_, i) => i);
+    for (const s of startCandidates) {
+      const ord = runNN(s);
+      const c = tourCost(ord);
+      if (c < bestCost) {
+        bestCost = c;
+        bestOrder = ord;
+      }
+    }
+
+    // Directed Or-Opt-1 + Directed 2-Opt polish
+    const minFixed = fixedStartIdx !== null ? 1 : 0;
+    let improved = true;
+    let passes = 0;
+    while (improved && passes < 6) {
+      improved = false;
+      passes++;
+
+      // Or-Opt-1: move node at idx to another position
+      for (let i = minFixed; i < bestOrder.length; i++) {
+        const node = bestOrder[i];
+        const without = bestOrder.slice(0, i).concat(bestOrder.slice(i + 1));
+        for (let pos = minFixed; pos <= without.length; pos++) {
+          if (pos === i) continue;
+          const candidate = without.slice(0, pos).concat([node], without.slice(pos));
+          const c = tourCost(candidate);
+          if (c + 0.5 < bestCost) {
+            bestCost = c;
+            bestOrder = candidate;
+            improved = true;
+            break;
+          }
+        }
+        if (improved) break;
+      }
+
+      if (improved) continue;
+
+      // Directed 2-Opt: reverse slice [i..j] if directed cost drops
+      for (let i = minFixed; i < bestOrder.length - 1; i++) {
+        for (let j = i + 1; j < bestOrder.length; j++) {
+          const candidate = bestOrder.slice(0, i)
+            .concat(bestOrder.slice(i, j + 1).reverse(), bestOrder.slice(j + 1));
+          const c = tourCost(candidate);
+          if (c + 0.5 < bestCost) {
+            bestCost = c;
+            bestOrder = candidate;
+            improved = true;
+            break;
+          }
+        }
+        if (improved) break;
+      }
+    }
+
+    return bestOrder;
+  }
+
+  function formatOsrmManeuver(step) {
+    if (!step || !step.maneuver) return "";
+    const { type, modifier } = step.maneuver;
+    const modMap = {
+      left: "à esquerda",
+      right: "à direita",
+      "slight left": "levemente à esquerda",
+      "slight right": "levemente à direita",
+      "sharp left": "acentuada à esquerda",
+      "sharp right": "acentuada à direita",
+      straight: "em frente",
+      uturn: "o retorno"
+    };
+    const dir = modMap[modifier] || "";
+
+    let action = "Siga";
+    if (type === "turn" || type === "end of road" || type === "fork") {
+      action = modifier === "uturn" ? "Faça o retorno" : (dir ? `Vire ${dir}` : "Vire");
+    } else if (type === "roundabout" || type === "rotary") {
+      action = "Na rotatória, siga";
+    } else if (type === "continue" || type === "new name") {
+      action = dir ? `Continue ${dir}` : "Continue";
+    } else if (type === "depart") {
+      action = "Saia pela via";
+    } else if (type === "arrive") {
+      action = "Chegada na parada";
+    }
+
+    const road = step.name ? ` na ${step.name}` : "";
+    return `${action}${road}`;
+  }
+
+  async function fetchJsonWithTimeout(url, timeoutMs = 8000) {
+    if (typeof fetch !== "function") return null;
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+      if (!res || !res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async function optimizeClustersWithOsrm(clusters, userLocation = null) {
+    if (!clusters || clusters.length <= 1) return clusters;
+    const valid = clusters.filter((c) => c.anchor && c.anchor.lat && c.anchor.lon);
+    const invalid = clusters.filter((c) => !c.anchor || !c.anchor.lat || !c.anchor.lon);
+    if (valid.length <= 1 || valid.length > 85) return null;
+
+    const hasOrigin = !!(userLocation && (userLocation.latitude || userLocation.lat) && (userLocation.longitude || userLocation.lon));
+    const originLat = hasOrigin ? (userLocation.latitude || userLocation.lat) : null;
+    const originLon = hasOrigin ? (userLocation.longitude || userLocation.lon) : null;
+
+    const coordPoints = hasOrigin
+      ? [{ lat: originLat, lon: originLon }, ...valid.map((c) => c.anchor)]
+      : valid.map((c) => c.anchor);
+
+    const coordsStr = coordPoints.map((p) => `${p.lon},${p.lat}`).join(";");
+    const data = await fetchJsonWithTimeout(
+      `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=duration`
+    );
+    if (!data || data.code !== "Ok" || !Array.isArray(data.durations)) return null;
+
+    const order = solveAsymmetricOpenTsp(data.durations, hasOrigin ? 0 : null);
+    const orderedValid = order
+      .filter((idx) => !(hasOrigin && idx === 0))
+      .map((idx) => valid[hasOrigin ? idx - 1 : idx])
+      .filter(Boolean);
+
+    return orderedValid.concat(invalid);
+  }
+
+  async function fetchRoadDataForStops(stops) {
+    if (!stops || stops.length < 2) return null;
+    const drivingStops = stops.filter((s) => !s.isWalkStop && s.lat && s.lon);
+    if (drivingStops.length < 2) return null;
+
+    const chunkSize = 45;
+    const combinedCoords = [];
+    const maneuvers = [];
+    let totalDist = 0;
+    let totalDur = 0;
+
+    for (let i = 0; i < drivingStops.length; i += (chunkSize - 1)) {
+      const slice = drivingStops.slice(i, i + chunkSize);
+      if (slice.length < 2) break;
+      const coordsStr = slice.map((s) => `${s.lon},${s.lat}`).join(";");
+      const data = await fetchJsonWithTimeout(
+        `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&steps=true`
+      );
+      if (!data || data.code !== "Ok" || !data.routes || !data.routes[0]) {
+        return null;
+      }
+
+      const route = data.routes[0];
+      totalDist += route.distance || 0;
+      totalDur += route.duration || 0;
+
+      const geoCoords = (route.geometry && route.geometry.coordinates) || [];
+      geoCoords.forEach(([lon, lat], idx) => {
+        if (combinedCoords.length > 0 && idx === 0) return;
+        combinedCoords.push([lat, lon]);
+      });
+
+      (route.legs || []).forEach((leg, legIdx) => {
+        const destStop = slice[legIdx + 1];
+        (leg.steps || []).forEach((step) => {
+          if (!step.maneuver || !step.maneuver.location) return;
+          const [mLon, mLat] = step.maneuver.location;
+          maneuvers.push({
+            lat: mLat,
+            lon: mLon,
+            instruction: formatOsrmManeuver(step),
+            distanceMeters: Math.round(step.distance || 0),
+            toStopId: destStop ? destStop.id : null
+          });
+        });
+      });
+
+      if (i + chunkSize >= drivingStops.length) break;
+    }
+
+    if (combinedCoords.length < 2) return null;
+    return {
+      routeGeometry: combinedCoords,
+      roadDistanceMeters: totalDist,
+      roadDurationSeconds: totalDur,
+      maneuvers,
+      usedRoadRouting: true
+    };
+  }
+
+  function groupRowsIntoPhysicalStops(rows) {
     const stopMap = new Map();
     rows.forEach((r) => {
       const { street, number, complement } = parseAddress(r.address);
@@ -403,34 +839,66 @@ const RouteOptimizer = (function () {
         apartmentInfo
       });
     });
+    return Array.from(stopMap.values());
+  }
 
-    const stops = Array.from(stopMap.values());
-    const orderedStops = orderStopsByStreetChain(stops, options.userLocation);
-
-    // If reverse option requested
-    if (options.reverse) {
-      orderedStops.reverse();
+  // Synchronous route builder (offline-ready, supports walk-radius clustering)
+  function buildOptimizedRoute(rows, options = {}) {
+    if (!rows || rows.length === 0) {
+      return { stops: [], totalPackages: 0, streets: [], walkSegments: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false };
     }
 
-    // Assign IDs, sort packages by apartment, and sequential metadata
-    let packageSeq = 0;
-    orderedStops.forEach((s, idx) => {
-      s.id = idx + 1;
-      s.originalId = s.id;
-      sortItemsByApartment(s.items);
-      s.distinctAddresses = countDistinctAddresses(s.items);
-      s.estimatedMinutes = s.distinctAddresses * 3;
+    const physicalStops = groupRowsIntoPhysicalStops(rows);
+    const clusters = buildWalkClusters(physicalStops, options.maxWalkDistanceMeters || 0);
+    const anchorStartPos = options.userLocation
+      ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
+      : null;
+    const orderedAnchors = orderStopsByStreetChain(clusters.map((c) => c.anchor), anchorStartPos);
+    const orderedStops = flattenClustersWithAnchorChain(clusters, orderedAnchors);
 
-      s.items.forEach((it) => {
-        packageSeq += 1;
-        it.seq = packageSeq;
-        it.stopId = s.id;
-      });
-    });
+    return finalizeOrderedStops(orderedStops, !!options.reverse, null);
+  }
+
+  // Asynchronous road-network optimizer: follows one-way street flow (OSRM) + walk-radius clustering
+  async function buildOptimizedRouteAsync(rows, options = {}) {
+    if (!rows || rows.length === 0) {
+      return { stops: [], totalPackages: 0, streets: [], walkSegments: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false };
+    }
+
+    const physicalStops = groupRowsIntoPhysicalStops(rows);
+    const clusters = buildWalkClusters(physicalStops, options.maxWalkDistanceMeters || 0);
+    let orderedClusters = await optimizeClustersWithOsrm(clusters, options.userLocation);
+
+    let orderedStops;
+    if (orderedClusters) {
+      orderedStops = [];
+      orderedClusters.forEach((c) => c.stops.forEach((st) => orderedStops.push(st)));
+    } else {
+      const anchorStartPos = options.userLocation
+        ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
+        : null;
+      const orderedAnchors = orderStopsByStreetChain(clusters.map((c) => c.anchor), anchorStartPos);
+      orderedStops = flattenClustersWithAnchorChain(clusters, orderedAnchors);
+    }
+
+    const finalized = finalizeOrderedStops(orderedStops, !!options.reverse, null);
+    const roadData = await fetchRoadDataForStops(finalized.stops);
+    if (!roadData) return finalized;
+
+    const metrics = {
+      ...calculateRouteMetrics(finalized.stops),
+      totalDistanceKm: parseFloat((roadData.roadDistanceMeters / 1000).toFixed(1)),
+      transitMinutes: Math.max(1, Math.round(roadData.roadDurationSeconds / 60))
+    };
+    metrics.estimatedMinutes = metrics.serviceMinutes + metrics.transitMinutes;
+    metrics.estimatedDurationStr = formatDuration(metrics.estimatedMinutes);
 
     return {
-      stops: orderedStops,
-      ...calculateRouteMetrics(orderedStops)
+      ...finalized,
+      ...metrics,
+      routeGeometry: roadData.routeGeometry,
+      maneuvers: roadData.maneuvers,
+      usedRoadRouting: true
     };
   }
 
@@ -533,6 +1001,7 @@ const RouteOptimizer = (function () {
       walkedStop,
       stops: newStops,
       newActiveIdx,
+      walkSegments: buildWalkSegments(newStops),
       metrics: calculateRouteMetrics(newStops)
     };
   }
@@ -576,6 +1045,12 @@ const RouteOptimizer = (function () {
   return {
     parseCSV,
     buildOptimizedRoute,
+    buildOptimizedRouteAsync,
+    fetchRoadDataForStops,
+    buildWalkClusters,
+    buildWalkSegments,
+    solveAsymmetricOpenTsp,
+    orderStopsAlongStreetGeo,
     findNearbyWalkCandidate,
     recalculateRouteAfterWalk,
     normalizeStreetKey,
