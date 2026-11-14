@@ -5,6 +5,12 @@
   const THEME_KEY = "spx_theme_preference";
   const WALK_DIST_KEY = "spx_max_walk_distance";
   const NAV_APP_KEY = "spx_nav_app_preference";
+  const WAKE_LOCK_KEY = "spx_wake_lock_enabled";
+  const TURN_HUD_KEY = "spx_show_turn_instructions";
+
+  let wakeLockSentinel = null;
+  let wakeLockEnabled = localStorage.getItem(WAKE_LOCK_KEY) !== "false";
+  let turnHudEnabled = localStorage.getItem(TURN_HUD_KEY) !== "false";
 
   function getSavedNavApp() {
     return localStorage.getItem(NAV_APP_KEY) === "waze" ? "waze" : "maps";
@@ -46,7 +52,7 @@
     dismissedWalkKeys: {},
     pendingWalkCandidate: null,
     walkChecklistOpen: false,
-    mapItemsDrawerOpen: true,
+    mapItemsDrawerOpen: false,
     hadInitialGpsRouteOrder: false,
     loadingFilter: "all", // 'all' | 'pending' | 'checked' | 'photo'
     userCoords: null,
@@ -108,6 +114,113 @@
     if (label) {
       label.textContent = state.theme === "dark" ? "Tema Claro" : "Tema Escuro";
     }
+  }
+
+  // --- SCREEN WAKE LOCK (MANTER TELA LIGADA INDEFINIDAMENTE) ---
+  async function requestWakeLock() {
+    if (!wakeLockEnabled) return;
+    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) {
+      updateWakeLockUI();
+      return;
+    }
+    if (wakeLockSentinel && !wakeLockSentinel.released) {
+      updateWakeLockUI();
+      return;
+    }
+    try {
+      wakeLockSentinel = await navigator.wakeLock.request("screen");
+      wakeLockSentinel.addEventListener("release", () => {
+        updateWakeLockUI();
+      });
+      updateWakeLockUI();
+    } catch (_) {
+      updateWakeLockUI();
+    }
+  }
+
+  async function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      try {
+        await wakeLockSentinel.release();
+      } catch (_) { }
+      wakeLockSentinel = null;
+    }
+    updateWakeLockUI();
+  }
+
+  function updateWakeLockUI() {
+    const label = document.getElementById("menuWakeLockLabel");
+    if (!label) return;
+    if (typeof navigator !== "undefined" && !("wakeLock" in navigator)) {
+      label.textContent = "Tela Sempre Ligada: Indisponível";
+      return;
+    }
+    label.textContent = wakeLockEnabled
+      ? "Tela Sempre Ligada: Ativo"
+      : "Tela Sempre Ligada: Desativado";
+  }
+
+  function toggleWakeLock() {
+    wakeLockEnabled = !wakeLockEnabled;
+    localStorage.setItem(WAKE_LOCK_KEY, String(wakeLockEnabled));
+    closeDropdown();
+    if (wakeLockEnabled) {
+      requestWakeLock();
+      showToast("🔆 Tela sempre ligada ativada!");
+    } else {
+      releaseWakeLock();
+      showToast("Tela sempre ligada desativada.");
+    }
+  }
+
+  function initWakeLock() {
+    updateWakeLockUI();
+    requestWakeLock();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && wakeLockEnabled) {
+        requestWakeLock();
+      }
+    });
+    const reacquireOnGesture = () => {
+      if (wakeLockEnabled && (!wakeLockSentinel || wakeLockSentinel.released)) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener("click", reacquireOnGesture, { passive: true });
+    document.addEventListener("touchstart", reacquireOnGesture, { passive: true });
+  }
+
+  // --- TURN-BY-TURN HUD TOGGLE (OCULTAR/MOSTRAR INSTRUÇÕES PASSO A PASSO) ---
+  function updateTurnHudUI() {
+    const hud = document.getElementById("mapNavHud");
+    const fabStack = document.getElementById("mapFabStack") || document.querySelector(".gmaps-fab-stack");
+    const fabBtn = document.getElementById("btnToggleTurnHud");
+    const menuLabel = document.getElementById("menuTurnHudLabel");
+
+    if (hud) {
+      hud.classList.toggle("hidden", !turnHudEnabled);
+    }
+    if (fabStack) {
+      fabStack.classList.toggle("turn-hud-hidden", !turnHudEnabled);
+    }
+    if (fabBtn) {
+      fabBtn.classList.toggle("active", turnHudEnabled);
+    }
+    if (menuLabel) {
+      menuLabel.textContent = turnHudEnabled
+        ? "Instruções Passo a Passo: Ativo"
+        : "Instruções Passo a Passo: Oculto";
+    }
+  }
+
+  function toggleTurnInstructions() {
+    turnHudEnabled = !turnHudEnabled;
+    localStorage.setItem(TURN_HUD_KEY, String(turnHudEnabled));
+    closeDropdown();
+    updateTurnHudUI();
+    showToast(turnHudEnabled
+      ? "🧭 Instruções passo a passo ativadas."
+      : "Instruções passo a passo ocultadas para ampliar o mapa.");
   }
 
   // --- STATE PERSISTENCE (PER-USER DATA ISOLATION) ---
@@ -467,8 +580,18 @@
         : `Estacione o carro no Ponto #${hub.id} e siga os trajetos otimizados a pé (considerando tamanho e peso dos pacotes):`;
     }
     if (listEl) {
+      const hubActionsHtml = `
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <button type="button" class="btn btn-outline btn-xs" style="flex:1;" onclick="app.sendHubToFront(${hub.id})">
+            ⏮ Enviar Ponto p/ Frente
+          </button>
+          <button type="button" class="btn btn-outline btn-xs" style="flex:1;" onclick="app.sendHubToEnd(${hub.id})">
+            ⏭ Enviar Ponto p/ Final
+          </button>
+        </div>
+      `;
       if (plan.trips.length === 0) {
-        listEl.innerHTML = `<div class="meta-text" style="font-size:0.8rem;">Todos os pacotes deste ponto já foram atendidos.</div>`;
+        listEl.innerHTML = `<div class="meta-text" style="font-size:0.8rem;">Todos os pacotes deste ponto já foram atendidos.</div>${hubActionsHtml}`;
         return;
       }
       listEl.innerHTML = plan.trips.map((trip) => {
@@ -488,7 +611,7 @@
           </div>
           ${divider}
         `;
-      }).join("");
+      }).join("") + hubActionsHtml;
     }
   }
 
@@ -1311,21 +1434,33 @@
         const isDelivered = st === "delivered";
         const isPending = st === "pending";
         const isFailed = st === "failed";
-        const aptStr = it.apartmentInfo && it.apartmentInfo.hasApartment
-          ? `🏢 ${it.apartmentInfo.displayLabel} • `
+        const aptBadge = it.apartmentInfo && it.apartmentInfo.hasApartment
+          ? `<span class="badge" style="background:rgba(238,77,45,0.14); color:var(--primary); font-size:0.7rem; font-weight:800;">🏢 ${it.apartmentInfo.displayLabel}</span>`
+          : "";
+        const carLoc = state.packageLocations[it.tn] || "";
+        const carLocBadge = carLoc
+          ? `<span class="badge" style="background:var(--surface); font-size:0.68rem;">📍 ${carLoc}</span>`
           : "";
         const compl = it.complement && it.complement !== "Sem complemento" ? it.complement : "";
+        const extraMeta = [
+          it.recipient ? `👤 ${it.recipient}` : "",
+          it.notes ? `📝 ${it.notes}` : ""
+        ].filter(Boolean).join(" • ");
         const safeTn = String(it.tn).replace(/'/g, "\\'");
 
         return `
           <div class="inline-pkg-row" onclick="event.stopPropagation()">
-            <div style="min-width:0; flex:1;">
-              <div style="font-weight:800; font-size:0.76rem; font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                #${it.seq || "-"} • ${it.tn}
+            <div class="inline-pkg-info">
+              <div class="inline-pkg-top">
+                <span class="inline-pkg-tn">Entrega #${it.seq || "-"} • ${it.tn}</span>
+                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                  ${aptBadge}
+                  ${carLocBadge}
+                </div>
               </div>
-              <div class="meta-text" style="font-size:0.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                ${aptStr}${compl || stop.title}
-              </div>
+              <div class="inline-pkg-addr">${stop.title}${stop.bairro ? ` • <span class="meta-text">${stop.bairro}</span>` : ""}</div>
+              ${compl ? `<div class="inline-pkg-compl"><strong>Compl:</strong> ${compl}</div>` : ""}
+              ${extraMeta ? `<div class="meta-text" style="font-size:0.72rem;">${extraMeta}</div>` : ""}
             </div>
             <div class="inline-pkg-btns">
               <button type="button" class="inline-status-btn ${isDelivered ? "active-ok" : ""}" onclick="event.stopPropagation(); app.setItemStatus('${safeTn}', 'delivered')">
@@ -1406,11 +1541,34 @@
     });
 
     if (Array.isArray(state.route.hubs) && state.route.hubs.length > 0) {
-      const rebuiltHubs = [];
+      const frontHubs = [];
+      const middleHubs = [];
+      const endHubs = [];
+
+      state.route.stops.forEach((s) => {
+        if (s.movedToFront) {
+          frontHubs.push({
+            id: 0,
+            lat: s.lat,
+            lon: s.lon,
+            lng: s.lon,
+            title: `Ponto (próx. ${s.title})`,
+            address: s.address,
+            street: s.street,
+            number: s.number,
+            bairro: s.bairro,
+            city: s.city,
+            zipcode: s.zipcode,
+            stops: [s]
+          });
+          s.movedToFront = false;
+        }
+      });
+
       state.route.hubs.forEach((h) => {
-        const remaining = state.route.stops.filter((s) => s.hubId === h.id && !s.deferredToEnd);
+        const remaining = state.route.stops.filter((s) => s.hubId === h.id && !s.deferredToEnd && !s.movedToFront);
         if (remaining.length > 0) {
-          rebuiltHubs.push({
+          middleHubs.push({
             ...h,
             stops: remaining
           });
@@ -1419,12 +1577,12 @@
 
       state.route.stops.forEach((s) => {
         if (s.deferredToEnd || !s.hubId) {
-          rebuiltHubs.push({
-            id: rebuiltHubs.length + 1,
+          endHubs.push({
+            id: 0,
             lat: s.lat,
             lon: s.lon,
             lng: s.lon,
-            title: `Ponto #${rebuiltHubs.length + 1} (próx. ${s.title})`,
+            title: `Ponto (próx. ${s.title})`,
             address: s.address,
             street: s.street,
             number: s.number,
@@ -1436,6 +1594,8 @@
           s.deferredToEnd = false;
         }
       });
+
+      const rebuiltHubs = [...frontHubs, ...middleHubs, ...endHubs];
 
       rebuiltHubs.forEach((h, idx) => {
         h.id = idx + 1;
@@ -1519,6 +1679,85 @@
     if (navigator.vibrate) navigator.vibrate(30);
     resequenceRouteAfterDeferral();
     showToast(`⏭ "${movedStop.title}" enviada para o final da rota!`);
+  }
+
+  function sendStopToFront(stopIdx) {
+    if (!state.route || !Array.isArray(state.route.stops) || state.route.stops.length <= 1) {
+      showToast("Não há outras paradas para reordenar.");
+      return;
+    }
+    const idx = typeof stopIdx === "number" ? stopIdx : state.activeStopIdx;
+    if (idx < 0 || idx >= state.route.stops.length) return;
+    if (idx === 0) {
+      showToast("Esta parada já está no início da rota.");
+      return;
+    }
+
+    const [movedStop] = state.route.stops.splice(idx, 1);
+    movedStop.isWalkStop = false;
+    movedStop.walkDistanceMeters = 0;
+    movedStop.movedToFront = true;
+    movedStop.deferredToEnd = false;
+    movedStop.hubId = null;
+    state.route.stops.unshift(movedStop);
+    state.activeStopIdx = 0;
+    state.arrivedCurrent = false;
+
+    if (navigator.vibrate) navigator.vibrate(30);
+    resequenceRouteAfterDeferral();
+    showToast(`⏮ "${movedStop.title}" movida para a frente da rota!`);
+  }
+
+  function sendHubToEnd(hubId) {
+    if (!state.route || !Array.isArray(state.route.hubs) || state.route.hubs.length <= 1) {
+      sendStopToEnd();
+      return;
+    }
+    const hIdx = state.route.hubs.findIndex((h) => h.id === hubId);
+    if (hIdx === -1) return;
+    if (hIdx === state.route.hubs.length - 1) {
+      showToast("Este ponto já está no final da rota.");
+      return;
+    }
+
+    const [movedHub] = state.route.hubs.splice(hIdx, 1);
+    state.route.hubs.push(movedHub);
+
+    const hubStops = state.route.stops.filter((s) => s.hubId === hubId);
+    const otherStops = state.route.stops.filter((s) => s.hubId !== hubId);
+    state.route.stops = [...otherStops, ...hubStops];
+    state.activeStopIdx = Math.min(state.activeStopIdx, Math.max(0, otherStops.length - 1));
+    state.arrivedCurrent = false;
+
+    if (navigator.vibrate) navigator.vibrate(30);
+    resequenceRouteAfterDeferral();
+    showToast(`⏭ Ponto enviado para o final da rota!`);
+  }
+
+  function sendHubToFront(hubId) {
+    if (!state.route || !Array.isArray(state.route.hubs) || state.route.hubs.length <= 1) {
+      sendStopToFront();
+      return;
+    }
+    const hIdx = state.route.hubs.findIndex((h) => h.id === hubId);
+    if (hIdx === -1) return;
+    if (hIdx === 0) {
+      showToast("Este ponto já está na frente da rota.");
+      return;
+    }
+
+    const [movedHub] = state.route.hubs.splice(hIdx, 1);
+    state.route.hubs.unshift(movedHub);
+
+    const hubStops = state.route.stops.filter((s) => s.hubId === hubId);
+    const otherStops = state.route.stops.filter((s) => s.hubId !== hubId);
+    state.route.stops = [...hubStops, ...otherStops];
+    state.activeStopIdx = 0;
+    state.arrivedCurrent = false;
+
+    if (navigator.vibrate) navigator.vibrate(30);
+    resequenceRouteAfterDeferral();
+    showToast(`⏮ Ponto movido para a frente da rota!`);
   }
 
   function sendItemToEnd(tn) {
@@ -1747,6 +1986,7 @@
             </div>
             <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
               ${wazeBtnHtml}
+              ${idx > 0 ? `<button type="button" class="btn btn-outline btn-xs" style="width:auto; padding:3px 7px; font-size:0.7rem;" onclick="event.stopPropagation(); app.sendStopToFront(${idx})" title="Trazer parada para a frente da rota">⏮ Frente</button>` : ""}
               ${idx < state.route.stops.length - 1 ? `<button type="button" class="btn btn-outline btn-xs" style="width:auto; padding:3px 7px; font-size:0.7rem;" onclick="event.stopPropagation(); app.sendStopToEnd(${idx})" title="Enviar parada para o final da rota">⏭ Final</button>` : ""}
               <span class="badge ${isActive ? "badge-primary" : isDone ? "badge-success" : (allFailed ? "badge-danger" : "")}">
                 ${isActive ? "Atual" : isDone ? "Entregue" : (allFailed ? "Falha" : "Pendente")}
@@ -1774,6 +2014,16 @@
     } else {
       switchTab("current");
     }
+  }
+
+  function openStopDetails(idx) {
+    if (!state.route || !state.route.stops[idx]) return;
+    state.activeStopIdx = idx;
+    state.arrivedCurrent = false;
+    saveState();
+    renderCurrentStopView();
+    renderMapBottomSheet();
+    switchTab("current");
   }
 
   // --- ORGANIZE / SCANNER TAB & REVERSE LOADING ORDER ---
@@ -2360,7 +2610,7 @@
     }
 
     if (btnDrawer) {
-      btnDrawer.textContent = `📦 Pacotes (${stop.items.length}) ${state.mapItemsDrawerOpen ? "▾" : "▸"}`;
+      btnDrawer.textContent = `📦 Ver Pacotes (${stop.items.length}) ${state.mapItemsDrawerOpen ? "▾" : "▸"}`;
     }
     if (drawer) {
       drawer.classList.toggle("hidden", !state.mapItemsDrawerOpen);
@@ -2597,20 +2847,13 @@
       const firstStopIdx = hub.stops && hub.stops[0]
         ? stops.findIndex((s) => s.id === hub.stops[0].id)
         : 0;
-      const returnTxt = plan.returnCount > 0 ? ` • ${plan.returnCount} volta(s) ao carro` : "";
-      const driveHref = state.navApp === "waze"
-        ? RouteOptimizer.buildWazeUrl(hub)
-        : RouteOptimizer.buildSingleStopGoogleMapsUrl(hub);
+      const hubPkgCount = (hub.stops || []).reduce((acc, s) => acc + (s.items ? s.items.length : 0), 0);
       const hubPopupHtml = `
-        <div class="map-stop-popup">
-          <div class="map-stop-badge" style="color:#0284c7;">🅿️ PONTO DE PARADA #${hub.id}</div>
+        <div class="map-stop-popup map-popup-compact">
+          <div class="map-stop-badge" style="color:#0284c7;">🅿️ PONTO #${hub.id}</div>
           <div class="map-stop-title">${hub.title}</div>
-          <div class="map-stop-desc">${hub.stops.length} entrega(s) ao redor • ${plan.trips.length} viagem(ns)${returnTxt}</div>
-          <div style="display:flex; flex-direction:column; gap:5px; margin-top:8px;">
-            <a href="${plan.walkUrl}" target="_blank" rel="noopener" class="btn btn-maps btn-xs" style="text-align:center;">🚶 Rota a Pé do Ponto</a>
-            <a href="${driveHref}" target="_blank" rel="noopener" class="btn btn-outline btn-xs" style="text-align:center;">🚗 Dirigir até o Ponto</a>
-            ${firstStopIdx >= 0 ? `<button type="button" class="btn btn-primary btn-xs" onclick="app.jumpToStop(${firstStopIdx})">Selecionar Ponto</button>` : ""}
-          </div>
+          <div class="map-stop-desc">${hubPkgCount} ${hubPkgCount === 1 ? "pacote" : "pacotes"} (${hub.stops.length} ${hub.stops.length === 1 ? "endereço" : "endereços"})</div>
+          ${firstStopIdx >= 0 ? `<button type="button" class="btn btn-primary btn-xs" style="margin-top:5px; width:100%; font-size:0.7rem; padding:3px 8px;" onclick="app.openStopDetails(${firstStopIdx})">Detalhes do Ponto</button>` : ""}
         </div>
       `;
       const hMarker = L.marker([hub.lat, hub.lon], {
@@ -2664,21 +2907,12 @@
         popupAnchor: [0, isCurrent ? -18 : -14]
       });
 
-      const walkInfoHtml = stop.isWalkStop
-        ? `<div class="walk-stop-tag" style="margin-top:4px;">🚶 Percurso: ~${stop.walkDistanceMeters || 0}m (Ponto #${stop.hubId || stop.walkFromStopId || "-"})</div>`
-        : "";
-      const popupItemsHtml = buildCompactItemStatusRowsHtml(stop);
-
       const popupHtml = `
-        <div class="map-stop-popup" style="min-width:230px;">
+        <div class="map-stop-popup map-popup-compact">
           <div class="map-stop-badge" style="${badgeStyle}">${statusBadge}</div>
           <div class="map-stop-title">${stop.title}</div>
-          <div class="map-stop-desc">${stop.items.length} pacote(s) • Seq: ${stop.items.map((it) => "#" + it.seq).join(", ")}</div>
-          ${walkInfoHtml}
-          <div style="margin-top:6px; max-height:140px; overflow-y:auto;">
-            ${popupItemsHtml}
-          </div>
-          ${!isCurrent ? `<button type="button" class="btn btn-primary btn-sm" style="margin-top:6px; width:100%; font-size:0.75rem; padding:4px;" onclick="app.jumpToStop(${idx})">Selecionar no Mapa</button>` : ""}
+          <div class="map-stop-desc">${stop.items.length} ${stop.items.length === 1 ? "pacote" : "pacotes"}</div>
+          <button type="button" class="btn btn-primary btn-xs" style="margin-top:5px; width:100%; font-size:0.7rem; padding:3px 8px;" onclick="app.openStopDetails(${idx})">Detalhes do Ponto</button>
         </div>
       `;
 
@@ -2696,13 +2930,10 @@
       }
     });
 
-    // Centraliza e destaca a parada atual quando recenter === true e followGps estiver desligado
+    // Centraliza na parada atual quando recenter === true e followGps estiver desligado (sem abrir balão automaticamente para não obstruir o mapa)
     const currentStop = stops[state.activeStopIdx];
     if (recenter && currentStop && !state.followGps) {
       state.map.setView([currentStop.lat, currentStop.lon], 16);
-      if (currentMarker) {
-        currentMarker.openPopup();
-      }
     }
 
     if (state.userCoords && state.userCoords.latitude && state.userCoords.longitude) {
@@ -3553,6 +3784,8 @@
   // --- BOOTSTRAP ---
   function init() {
     initTheme();
+    initWakeLock();
+    updateTurnHudUI();
     initSwipeGestures();
     initQuickSearch();
 
@@ -3976,6 +4209,7 @@
     setItemStatus,
     setItemReason,
     jumpToStop,
+    openStopDetails,
     openModal,
     closeModal,
     closeScanModal,
@@ -4030,7 +4264,12 @@
     renderMapBottomSheet,
     triggerManualScanFromInput,
     sendStopToEnd,
+    sendStopToFront,
+    sendHubToEnd,
+    sendHubToFront,
     sendItemToEnd,
+    toggleWakeLock,
+    toggleTurnInstructions,
     showToast
   };
 

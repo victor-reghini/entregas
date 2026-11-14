@@ -114,7 +114,7 @@ header.app-header {
   padding: 8px 12px;
   position: sticky;
   top: 0;
-  z-index: 900;
+  z-index: 5000;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -212,7 +212,7 @@ header.app-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  z-index: 1000;
+  z-index: 5100;
   animation: dropdownIn 0.15s ease-out;
 }
 
@@ -544,7 +544,7 @@ main.app-main {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 2500;
+  z-index: 4000;
   display: flex;
   align-items: center;
   justify-content: space-around;
@@ -674,8 +674,10 @@ main.app-main {
 
 .status-toggles {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
 }
 
 .status-opt-btn {
@@ -880,7 +882,7 @@ main.app-main {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  z-index: 6000;
   padding: 16px;
   backdrop-filter: blur(2px);
 }
@@ -930,6 +932,7 @@ main.app-main {
 .quick-search-box {
   position: relative;
   width: 100%;
+  z-index: 3000;
 }
 
 .quick-search-input-wrap {
@@ -970,7 +973,7 @@ main.app-main {
   max-height: 280px;
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
-  z-index: 850;
+  z-index: 3100;
   display: flex;
   flex-direction: column;
 }
@@ -1183,30 +1186,38 @@ main.app-main {
 }
 
 /* Map Popup Styling */
+.leaflet-popup-content {
+  margin: 8px 10px !important;
+}
+
 .map-stop-popup {
-  padding: 4px;
+  padding: 2px;
   color: #0f172a;
 }
 
+.map-popup-compact {
+  max-width: 175px;
+}
+
 .map-stop-badge {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 800;
   text-transform: uppercase;
   color: #ee4d2d;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .map-stop-title {
   font-weight: 800;
-  font-size: 0.88rem;
-  line-height: 1.25;
+  font-size: 0.8rem;
+  line-height: 1.2;
   color: #0f172a;
 }
 
 .map-stop-desc {
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   color: #64748b;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 /* Scan Modal Card */
@@ -1980,7 +1991,8 @@ main.app-main {
   box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.28);
 }
 
-#btnToggleFollowGps.active {
+#btnToggleFollowGps.active,
+#btnToggleTurnHud.active {
   background: var(--primary);
   color: #ffffff;
   border-color: var(--primary);
@@ -2006,6 +2018,8 @@ body {
    ========================================== */
 .gmaps-screen {
   position: relative;
+  isolation: isolate;
+  z-index: 1;
   width: 100%;
   height: calc(100dvh - 156px);
   min-height: 480px;
@@ -2017,6 +2031,9 @@ body {
 }
 
 #map.gmaps-canvas {
+  position: relative;
+  isolation: isolate;
+  z-index: 1 !important;
   width: 100% !important;
   height: 100% !important;
   min-height: 480px !important;
@@ -2029,11 +2046,31 @@ body {
   top: 8px;
   left: 8px;
   right: 8px;
-  z-index: 900;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 6px;
   pointer-events: none;
+}
+
+.gmaps-turn-close-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.gmaps-turn-close-btn:hover {
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .gmaps-top-overlay > * {
@@ -2099,10 +2136,15 @@ body {
   position: absolute;
   right: 8px;
   top: 96px;
-  z-index: 900;
+  z-index: 25;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: top 0.2s ease;
+}
+
+.gmaps-fab-stack.turn-hud-hidden {
+  top: 40px;
 }
 
 .gmaps-fab-btn {
@@ -2135,7 +2177,7 @@ body {
   left: 8px;
   right: 8px;
   bottom: 8px;
-  z-index: 920;
+  z-index: 30;
   background: rgba(18, 19, 24, 0.95);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -2191,7 +2233,7 @@ body {
 
 .gmaps-sheet-items {
   margin-top: 8px;
-  max-height: 170px;
+  max-height: 220px;
   overflow-y: auto;
   border-top: 1px dashed var(--border);
   padding-top: 6px;
@@ -2199,21 +2241,56 @@ body {
 
 .inline-pkg-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding: 6px 8px;
+  padding: 10px;
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
+}
+
+.inline-pkg-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.inline-pkg-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.inline-pkg-tn {
+  font-weight: 800;
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.inline-pkg-addr {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.inline-pkg-compl {
+  font-size: 0.76rem;
+  color: var(--text);
+  line-height: 1.3;
 }
 
 .inline-pkg-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--border);
 }
 
 .inline-status-btn {
@@ -2221,9 +2298,10 @@ body {
   background: var(--surface);
   color: var(--text-muted);
   border-radius: 6px;
-  padding: 4px 7px;
-  font-size: 0.68rem;
+  padding: 6px 4px;
+  font-size: 0.7rem;
   font-weight: 800;
+  text-align: center;
   cursor: pointer;
 }
 

@@ -137,6 +137,26 @@
           </div>
         </button>
 
+        <button type="button" class="dropdown-item" id="menuItemWakeLock" onclick="app.toggleWakeLock()">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="1" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="21" x2="12" y2="23" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span id="menuWakeLockLabel">Tela Sempre Ligada: Ativo</span>
+          </div>
+        </button>
+
+        <button type="button" class="dropdown-item" id="menuItemTurnHud" onclick="app.toggleTurnInstructions()">
+          <div class="dropdown-item-content">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span id="menuTurnHudLabel">Instruções Passo a Passo: Ativo</span>
+          </div>
+        </button>
+
         <button type="button" class="dropdown-item" id="menuItemTheme">
           <div class="dropdown-item-content">
             <span id="menuThemeIcon">
@@ -579,6 +599,10 @@
               <div style="font-size:0.95rem; font-weight:800;">Conferência de Entrega</div>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline btn-sm" style="width:auto;" onclick="app.sendStopToFront()"
+                title="Enviar esta parada para a frente da rota">
+                ⏮ p/ Frente
+              </button>
               <button type="button" class="btn btn-outline btn-sm" style="width:auto;" onclick="app.sendStopToEnd()"
                 title="Enviar esta parada para o final da rota">
                 ⏭ p/ Final
@@ -777,7 +801,7 @@
       <!-- ABA PRINCIPAL: MAPA INTERATIVO (ESTILO GOOGLE MAPS) -->
       <div id="tabMap" class="gmaps-screen">
         <!-- HUD Superior Estilo Google Maps (Placa de Navegação + Legenda) -->
-        <div class="gmaps-top-overlay">
+        <div class="gmaps-top-overlay" id="mapTopOverlay">
           <div id="mapNavHud" class="map-nav-hud gmaps-turn-banner">
             <div class="gmaps-turn-icon">
               <svg class="icon" width="22" height="22" viewBox="0 0 24 24">
@@ -791,6 +815,9 @@
                 mapa</div>
             </div>
             <span class="badge badge-primary" id="mapActiveStopPill" style="flex-shrink:0;">Mapa</span>
+            <button type="button" class="gmaps-turn-close-btn" onclick="app.toggleTurnInstructions()" title="Ocultar instruções passo a passo" aria-label="Ocultar instruções passo a passo">
+              ✕
+            </button>
           </div>
 
           <div class="gmaps-legend-pills">
@@ -801,7 +828,14 @@
         </div>
 
         <!-- Botões Flutuantes Laterais Estilo Google Maps -->
-        <div class="gmaps-fab-stack">
+        <div class="gmaps-fab-stack" id="mapFabStack">
+          <button type="button" class="gmaps-fab-btn active" id="btnToggleTurnHud" onclick="app.toggleTurnInstructions()"
+            title="Mostrar/ocultar instruções passo a passo">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor" stroke-width="2.5" />
+            </svg>
+            <span>Passos</span>
+          </button>
           <button type="button" class="gmaps-fab-btn" id="btnToggleFollowGps" onclick="app.toggleFollowGps()"
             title="Seguir minha posição GPS">
             <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
@@ -895,26 +929,9 @@
           </div>
 
           <div class="gmaps-sheet-actions" id="mapCarSyncBox">
-            <a id="btnMapWalkRoute" href="#" target="_blank" rel="noopener" class="btn btn-success btn-xs"
-              style="flex:1; text-align:center;">
-              🚶 Rota a Pé
-            </a>
-            <a id="btnMapLaunchCarNav" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-xs"
-              style="flex:1; text-align:center;">
-              🚗 Dirigir
-            </a>
-            <button type="button" class="btn btn-outline btn-xs" id="btnDeferStopMap" onclick="app.sendStopToEnd()"
-              style="width:auto;" title="Enviar parada atual para o final da rota">
-              ⏭ Final
-            </button>
             <button type="button" class="btn btn-outline btn-xs" id="btnToggleMapItemsDrawer"
-              onclick="app.toggleMapItemsDrawer()" style="flex:1;">
-              📦 Pacotes (1)
-            </button>
-            <button type="button" class="btn btn-outline btn-xs" id="btnFinishRouteMap"
-              onclick="app.openFinishRouteModal()"
-              style="width:auto; border-color:rgba(239,68,68,0.45); color:var(--danger-text);" title="Encerrar Rota">
-              Encerrar Rota
+              onclick="app.toggleMapItemsDrawer()" style="width:100%; flex:1; justify-content:center;">
+              📦 Ver Pacotes (1) ▸
             </button>
           </div>
 
