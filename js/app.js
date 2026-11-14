@@ -39,6 +39,7 @@
     photos: {},           // tn -> dataUrl (armazenadas localmente no IndexedDB)
     loadedPackages: {},   // tn -> true (marcado como conferido/carregado no carro)
     packageLocations: {}, // tn -> texto de localização física no veículo
+    packageSpecs: {},     // tn -> { size: 'xs'|'s'|'m'|'l'|'xl', weight: 'light'|'medium'|'heavy' }
     walkedStops: [],      // paradas adiantadas a pé e removidas da fila
     maxWalkDistanceMeters: getSavedWalkDistance(),
     navApp: getSavedNavApp(), // 'maps' | 'waze'
@@ -57,6 +58,7 @@
       walkLines: [],
       gpsUser: null,
       allStops: [],
+      allHubs: [],
       animatedVehicle: null
     }
   };
@@ -65,6 +67,8 @@
   let swWaitingWorker = null;
   let swRefreshing = false;
   let walkRebuildTimer = null;
+  let walkCheckInFlight = false;
+  let recalculateInFlight = false;
 
   // --- TOAST NOTIFICATIONS (No native browser alerts) ---
   function showToast(msg) {
@@ -117,6 +121,7 @@
         results: state.results,
         loadedPackages: state.loadedPackages,
         packageLocations: state.packageLocations,
+        packageSpecs: state.packageSpecs,
         walkedStops: state.walkedStops,
         maxWalkDistanceMeters: state.maxWalkDistanceMeters,
         navApp: state.navApp,
@@ -166,6 +171,7 @@
           state.results = parsed.results || {};
           state.loadedPackages = parsed.loadedPackages || {};
           state.packageLocations = parsed.packageLocations || {};
+          state.packageSpecs = parsed.packageSpecs || {};
           state.walkedStops = parsed.walkedStops || [];
           if (typeof parsed.maxWalkDistanceMeters === "number") {
             state.maxWalkDistanceMeters = parsed.maxWalkDistanceMeters;
@@ -217,15 +223,30 @@
       return;
     }
 
+    const initialSpecs = {};
+    rows.forEach((r) => {
+      if (r.size || r.weight) {
+        initialSpecs[r.tn] = {
+          size: RouteOptimizer.normalizePackageSize(r.size),
+          weight: RouteOptimizer.normalizePackageWeight(r.weight)
+        };
+      }
+    });
+    state.packageSpecs = initialSpecs;
+
     const options = {
       userLocation: useGPS && state.userCoords ? state.userCoords : null,
       reverse: reverse,
-      maxWalkDistanceMeters: state.maxWalkDistanceMeters
+      maxWalkDistanceMeters: state.maxWalkDistanceMeters,
+      packageSpecs: state.packageSpecs
     };
 
-    showToast("Calculando rota pelo sentido das vias...");
+    showToast("Geocodificando endereços e calculando distâncias pelas calçadas...");
     const optimized = await RouteOptimizer.buildOptimizedRouteAsync(rows, options);
     optimized.sourceRows = rows;
+    optimized.reverseOrder = !!reverse;
+    optimized.walkRadiusUsed = state.maxWalkDistanceMeters;
+    optimized.schemaVersion = 3;
     state.route = optimized;
     state.started = false;
     state.finished = false;
@@ -247,9 +268,11 @@
     saveState();
 
     switchScreen("home");
+    const hubCount = optimized.hubs ? optimized.hubs.length : optimized.stops.length;
+    const geoTxt = optimized.geocodedCount > 0 ? ` • ${optimized.geocodedCount} endereços` : "";
     showToast(optimized.usedRoadRouting
-      ? `Rota otimizada pelas vias: ${optimized.stops.length} paradas (${optimized.totalPackages} pacotes).`
-      : `Rota gerada (offline): ${optimized.stops.length} paradas e ${optimized.totalPackages} pacotes.`);
+      ? `Rota pronta: ${hubCount} ponto(s) de parada${geoTxt} pelas calçadas/vias.`
+      : `Rota (offline): ${hubCount} ponto(s) de parada e ${optimized.totalPackages} pacotes.`);
   }
 
   function handleFileSelect(file) {
@@ -286,6 +309,127 @@
     }
   }
 
+  function getCarRoutingPoints() {
+    if (!state.route) return [];
+    return (state.route.hubs && state.route.hubs.length > 0)
+      ? state.route.hubs
+      : (state.route.stops || []);
+  }
+
+  function getStopHub(stop) {
+    if (!stop || !state.route || !Array.isArray(state.route.hubs)) return null;
+    return state.route.hubs.find((h) => (h.hubId || h.id) === stop.hubId) || null;
+  }
+
+  function getEffectivePackageSpec(item) {
+    const saved = state.packageSpecs[item.tn] || {};
+    return {
+      size: RouteOptimizer.normalizePackageSize(saved.size || item.size || "m"),
+      weight: RouteOptimizer.normalizePackageWeight(saved.weight || item.weight || "medium")
+    };
+  }
+
+  function buildPackageSpecControls(item) {
+    const spec = getEffectivePackageSpec(item);
+    const sizeOpts = Object.entries(RouteOptimizer.PACKAGE_SIZE_LABELS)
+      .map(([k, label]) => `<option value="${k}" ${spec.size === k ? "selected" : ""}>${label}</option>`)
+      .join("");
+    const weightOpts = Object.entries(RouteOptimizer.PACKAGE_WEIGHT_LABELS)
+      .map(([k, label]) => `<option value="${k}" ${spec.weight === k ? "selected" : ""}>${label}</option>`)
+      .join("");
+    return `
+      <div class="pkg-spec-row" onclick="event.stopPropagation()">
+        <select class="pkg-spec-select" aria-label="Tamanho do pacote ${item.tn}" onchange="app.setPackageSpec('${item.tn}', 'size', this.value)">
+          ${sizeOpts}
+        </select>
+        <select class="pkg-spec-select" aria-label="Peso do pacote ${item.tn}" onchange="app.setPackageSpec('${item.tn}', 'weight', this.value)">
+          ${weightOpts}
+        </select>
+      </div>
+    `;
+  }
+
+  function setPackageSpec(tn, field, val) {
+    const prev = state.packageSpecs[tn] || {};
+    state.packageSpecs[tn] = {
+      size: field === "size" ? RouteOptimizer.normalizePackageSize(val) : RouteOptimizer.normalizePackageSize(prev.size),
+      weight: field === "weight" ? RouteOptimizer.normalizePackageWeight(val) : RouteOptimizer.normalizePackageWeight(prev.weight)
+    };
+    if (state.route && Array.isArray(state.route.hubs)) {
+      state.route.hubs.forEach((hub) => {
+        hub.walkPlan = RouteOptimizer.buildHubWalkPlan(hub, state.packageSpecs, state.results);
+      });
+      RouteOptimizer.fetchWalkGeometriesForHubsAsync(state.route.hubs).then((polylines) => {
+        if (!state.route) return;
+        state.route.walkPolylines = polylines;
+        saveState();
+        if (state.map) updateMapMarkers();
+      }).catch(() => {});
+    }
+    saveState();
+    if (state.route && state.route.stops[state.activeStopIdx]) {
+      renderHubWalkPlanCard(state.route.stops[state.activeStopIdx]);
+      renderPackageChecklist(state.route.stops[state.activeStopIdx]);
+    }
+    showToast("Dimensão do pacote atualizada e caminhada recalculada.");
+  }
+
+  function renderHubWalkPlanCard(stop) {
+    const card = document.getElementById("hubWalkPlanCard");
+    if (!card) return;
+    const hub = getStopHub(stop);
+    if (!hub) {
+      card.classList.add("hidden");
+      return;
+    }
+
+    const plan = RouteOptimizer.buildHubWalkPlan(hub, state.packageSpecs, state.results);
+    hub.walkPlan = plan;
+    card.classList.remove("hidden");
+
+    const titleEl = document.getElementById("hubWalkCardTitle");
+    const badgeEl = document.getElementById("hubWalkTripsBadge");
+    const hintEl = document.getElementById("hubWalkCardHint");
+    const listEl = document.getElementById("hubWalkTripsList");
+
+    if (titleEl) {
+      titleEl.textContent = `Ponto #${hub.id}: ${hub.title} (${hub.stops.length} entrega${hub.stops.length > 1 ? "s" : ""})`;
+    }
+    if (badgeEl) {
+      const returnTxt = plan.returnCount > 0 ? ` • ${plan.returnCount} volta${plan.returnCount > 1 ? "s" : ""} ao carro` : "";
+      badgeEl.textContent = `${plan.trips.length} viagem${plan.trips.length > 1 ? "ns" : ""}${returnTxt}`;
+    }
+    if (hintEl) {
+      hintEl.textContent = state.arrivedCurrent
+        ? `Você chegou ao Ponto de Parada #${hub.id}! Separe os pacotes por saída e abra a rota a pé pelas calçadas/vias:`
+        : `Estacione o carro no Ponto #${hub.id} e siga os trajetos otimizados a pé (considerando tamanho e peso dos pacotes):`;
+    }
+    if (listEl) {
+      if (plan.trips.length === 0) {
+        listEl.innerHTML = `<div class="meta-text" style="font-size:0.8rem;">Todos os pacotes deste ponto já foram atendidos.</div>`;
+        return;
+      }
+      listEl.innerHTML = plan.trips.map((trip) => {
+        const stopLabels = trip.units.map((u) => `#${u.stop.id} ${u.stop.title}${u.splitPart ? ` (${u.splitPart})` : ""}`).join(" • ");
+        const divider = trip.returnToCarAfter
+          ? `<div class="hub-return-divider">🚗 Voltar ao carro no Ponto #${hub.id} para buscar o próximo lote</div>`
+          : "";
+        return `
+          <div class="hub-trip-box">
+            <div class="hub-trip-header">
+              <span>${plan.trips.length > 1 ? `Saída #${trip.tripNumber}` : "Rota a Pé"} • ${trip.items.length} pct (~${trip.walkMetersEstimate}m)</span>
+              <a href="${trip.walkUrl}" target="_blank" rel="noopener" class="btn btn-maps btn-xs" style="width:auto;">
+                🚶 Rota a Pé
+              </a>
+            </div>
+            <div class="hub-trip-stops">${stopLabels}</div>
+          </div>
+          ${divider}
+        `;
+      }).join("");
+    }
+  }
+
   function syncNavAppUI() {
     const isWaze = state.navApp === "waze";
 
@@ -296,8 +440,8 @@
     const hint = document.getElementById("navAppHint");
     if (hint) {
       hint.textContent = isWaze
-        ? "Exibe os atalhos diretos para o Waze na parada atual e na lista de paradas."
-        : "Exibe a Rota Completa no Google Maps e a Lista de Paradas durante a entrega.";
+        ? "Exibe os atalhos diretos para o Waze até o ponto de parada."
+        : "Exibe a Rota Completa entre Pontos de Parada no Google Maps e a Lista de Paradas.";
     }
 
     const menuLabel = document.getElementById("menuNavAppLabel");
@@ -320,12 +464,13 @@
     const btnMapCar = document.getElementById("btnMapLaunchCarNav");
     if (btnMapCar && state.route && state.route.stops && state.route.stops.length > 0) {
       const activeStop = state.route.stops[state.activeStopIdx] || state.route.stops[0];
+      const activeTarget = getStopHub(activeStop) || activeStop;
       if (isWaze) {
-        btnMapCar.href = RouteOptimizer.buildWazeUrl(activeStop);
+        btnMapCar.href = RouteOptimizer.buildWazeUrl(activeTarget);
         btnMapCar.className = "btn btn-waze btn-sm";
-        btnMapCar.textContent = "Abrir Parada Atual no Waze (Android Auto / CarPlay)";
+        btnMapCar.textContent = "Abrir Ponto de Parada no Waze (Android Auto / CarPlay)";
       } else {
-        btnMapCar.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+        btnMapCar.href = RouteOptimizer.buildGoogleMapsRouteUrl(getCarRoutingPoints());
         btnMapCar.className = "btn btn-maps btn-sm";
         btnMapCar.textContent = "Abrir Rota Completa no Google Maps (Android Auto / CarPlay)";
       }
@@ -365,6 +510,136 @@
     }
   }
 
+  function extractSourceRowsFromRoute() {
+    if (!state.route) return [];
+    const walkedTns = new Set();
+    (state.walkedStops || []).forEach((ws) => {
+      (ws.items || []).forEach((it) => walkedTns.add(it.tn));
+    });
+
+    if (Array.isArray(state.route.sourceRows) && state.route.sourceRows.length > 0) {
+      return state.route.sourceRows.filter((r) => !walkedTns.has(r.tn));
+    }
+
+    const rows = [];
+    (state.route.stops || []).forEach((s) => {
+      (s.items || []).forEach((it) => {
+        if (walkedTns.has(it.tn)) return;
+        const spec = getEffectivePackageSpec(it);
+        rows.push({
+          tn: it.tn,
+          address: it.address || s.title || "",
+          bairro: s.bairro || "Não inf.",
+          city: s.city || "Não inf.",
+          zipcode: s.zipcode || "",
+          lat: s.csvLat || s.lat || 0,
+          lon: s.csvLon || s.lon || 0,
+          atId: it.atId || "",
+          recipient: it.recipient || "",
+          notes: it.notes || "",
+          sortCode: it.sortCode || "",
+          size: spec.size,
+          weight: spec.weight
+        });
+      });
+    });
+    return rows;
+  }
+
+  function setRecalculateButtonsLoading(loading) {
+    const ids = ["btnRecalculateRoutesHome", "btnRecalculateRoutesAll", "btnRecalculateRoutesMap"];
+    ids.forEach((id) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      if (!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
+      btn.disabled = loading;
+      btn.innerHTML = loading ? "Recalculando..." : btn.dataset.origHtml;
+    });
+  }
+
+  async function recalculateAllRoutes() {
+    if (recalculateInFlight) return;
+    if (!state.route || (!state.route.stops.length && !(state.route.sourceRows && state.route.sourceRows.length))) {
+      showToast("Carregue uma planilha antes de recalcular as rotas.");
+      return;
+    }
+
+    const rows = extractSourceRowsFromRoute();
+    if (rows.length === 0) {
+      showToast("Não há entregas pendentes para recalcular.");
+      return;
+    }
+
+    const prevSourceRows = state.route.sourceRows || rows;
+    const prevReverse = !!state.route.reverseOrder;
+
+    recalculateInFlight = true;
+    setRecalculateButtonsLoading(true);
+    showToast("Recalculando todas as rotas (endereços, calçadas e vias)...");
+
+    try {
+      const optCheck = document.getElementById("optReverseOrder");
+      const reverse = optCheck ? optCheck.checked : prevReverse;
+      const gpsCheck = document.getElementById("optUseGPSOrigin");
+      const useGps = state.started
+        ? !!state.userCoords
+        : ((gpsCheck ? gpsCheck.checked : true) && !!state.userCoords);
+
+      const rebuilt = await RouteOptimizer.buildOptimizedRouteAsync(rows, {
+        userLocation: useGps ? state.userCoords : null,
+        reverse,
+        maxWalkDistanceMeters: state.maxWalkDistanceMeters,
+        packageSpecs: state.packageSpecs
+      });
+      rebuilt.sourceRows = prevSourceRows;
+      rebuilt.reverseOrder = reverse;
+      rebuilt.walkRadiusUsed = state.maxWalkDistanceMeters;
+      rebuilt.schemaVersion = 3;
+
+      const walkedPkgCount = (state.walkedStops || []).reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
+      rebuilt.totalPackages = (rebuilt.totalPackages || 0) + walkedPkgCount;
+
+      state.route = rebuilt;
+      state.dismissedWalkKeys = {};
+      state.pendingWalkCandidate = null;
+      state.walkChecklistOpen = false;
+      state.arrivedCurrent = false;
+      state.autoArrivedStopId = null;
+
+      // Focus first stop that still has pending items when already started
+      if (state.started && Array.isArray(rebuilt.stops) && rebuilt.stops.length > 0) {
+        const firstPendingIdx = rebuilt.stops.findIndex((s) =>
+          (s.items || []).some((it) => !state.results[it.tn] || state.results[it.tn].status === "pending")
+        );
+        state.activeStopIdx = firstPendingIdx >= 0 ? firstPendingIdx : 0;
+      } else {
+        state.activeStopIdx = 0;
+      }
+
+      saveState();
+      updateHeader();
+      renderHomePreview();
+      renderLoadingOrderList();
+      if (state.started && !state.finished) {
+        renderCurrentStopView();
+        renderFullStopsList();
+      }
+      if (state.map) updateMapMarkers();
+      syncNavAppUI();
+
+      const hubCount = rebuilt.hubs ? rebuilt.hubs.length : rebuilt.stops.length;
+      showToast(rebuilt.usedRoadRouting
+        ? `✓ Rotas recalculadas: ${hubCount} ponto(s) de parada pelas calçadas/vias.`
+        : `Rotas recalculadas (offline): ${hubCount} ponto(s) de parada.`);
+    } catch (err) {
+      console.error("Erro ao recalcular rotas:", err);
+      showToast("Não foi possível recalcular as rotas agora.");
+    } finally {
+      recalculateInFlight = false;
+      setRecalculateButtonsLoading(false);
+    }
+  }
+
   function setMaxWalkDistance(meters) {
     const parsed = Math.max(0, Math.min(1000, parseInt(meters, 10) || 0));
     state.maxWalkDistanceMeters = parsed;
@@ -372,23 +647,12 @@
     syncWalkDistanceUI();
     saveState();
 
-    // If route hasn't started yet and source rows exist, rebuild itinerary with the new walk reach
-    if (!state.started && state.route && state.route.sourceRows && state.route.sourceRows.length > 0) {
+    // Always rebuild route (whether on Home or Active screen) when walk distance changes
+    if (state.route && ((state.route.stops && state.route.stops.length > 0) || (state.route.sourceRows && state.route.sourceRows.length > 0))) {
       clearTimeout(walkRebuildTimer);
-      walkRebuildTimer = setTimeout(async () => {
-        if (state.started || !state.route || !state.route.sourceRows) return;
-        const rows = state.route.sourceRows;
-        const rebuilt = await RouteOptimizer.buildOptimizedRouteAsync(rows, {
-          userLocation: state.userCoords || null,
-          maxWalkDistanceMeters: state.maxWalkDistanceMeters
-        });
-        rebuilt.sourceRows = rows;
-        state.route = rebuilt;
-        saveState();
-        renderHomePreview();
-        renderLoadingOrderList();
-        if (state.map) updateMapMarkers();
-      }, 250);
+      walkRebuildTimer = setTimeout(() => {
+        recalculateAllRoutes();
+      }, 300);
     }
 
     if (state.started && !state.finished && state.arrivedCurrent) {
@@ -419,7 +683,7 @@
         </div>
       </div>
       <div class="walk-presets">
-        ${[0, 80, 150, 250, 400].map((m) => `
+        ${[0, 50, 80, 150, 250, 400].map((m) => `
           <button type="button" class="filter-pill ${state.maxWalkDistanceMeters === m ? "active" : ""}" onclick="app.setMaxWalkDistance(${m}); app.closeInlineWalkEditor();">
             ${m === 0 ? "Desativado" : m + "m"}
           </button>
@@ -596,21 +860,25 @@
 
     const routeModeBadge = document.getElementById("routeModeBadge");
     if (routeModeBadge) {
+      const hubCount = state.route.hubs ? state.route.hubs.length : state.route.stops.length;
       const walkCount = state.route.stops.filter((s) => s.isWalkStop).length;
-      const walkTxt = walkCount > 0 ? ` • ${walkCount} a pé no roteiro` : "";
+      const walkTxt = walkCount > 0 ? ` • ${walkCount} a pé` : "";
+      const geoTxt = state.route.geocodedCount > 0 ? ` • ${state.route.geocodedCount} endereços` : "";
+      const footTxt = state.route.usedFootDistance ? " / calçadas" : "";
       routeModeBadge.textContent = state.route.usedRoadRouting
-        ? `✓ Sentido real das vias (OSRM)${walkTxt}`
-        : `Modo offline (sequência local)${walkTxt}`;
+        ? `✓ ${hubCount} pontos de parada (vias${footTxt}${geoTxt})${walkTxt}`
+        : `Modo offline: ${hubCount} pontos de parada${walkTxt}`;
     }
 
+    const carPoints = getCarRoutingPoints();
     const btnFullRoute = document.getElementById("btnOpenFullRouteDirect");
     if (btnFullRoute) {
-      btnFullRoute.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+      btnFullRoute.href = RouteOptimizer.buildGoogleMapsRouteUrl(carPoints);
     }
 
     const btnFirstWaze = document.getElementById("btnOpenFirstStopWaze");
-    if (btnFirstWaze && state.route.stops[0]) {
-      btnFirstWaze.href = RouteOptimizer.buildWazeUrl(state.route.stops[0]);
+    if (btnFirstWaze && carPoints[0]) {
+      btnFirstWaze.href = RouteOptimizer.buildWazeUrl(carPoints[0]);
     }
 
     syncNavAppUI();
@@ -622,7 +890,7 @@
             ? `<div class="meta-text" style="font-size:0.75rem; color:var(--info, #0284c7);">${s.distinctAddresses} apts/endereços • ~${s.distinctAddresses * 3} min</div>`
             : `<div class="meta-text" style="font-size:0.75rem;">~${(s.distinctAddresses || 1) * 3} min</div>`;
           const walkTag = s.isWalkStop
-            ? `<div class="walk-stop-tag">🚶 A pé (~${s.walkDistanceMeters || 0}m${s.walkFromStopId ? ` da Parada #${s.walkFromStopId}` : ""})</div>`
+            ? `<div class="walk-stop-tag">🚶 Percurso a pé: ~${s.walkDistanceMeters || 0}m (Ponto #${s.hubId || s.walkFromStopId || "-"})</div>`
             : "";
 
           return `
@@ -667,7 +935,7 @@
     const walkBanner = document.getElementById("currentStopWalkBanner");
     if (walkBanner) {
       if (stop.isWalkStop) {
-        walkBanner.textContent = `🚶 Parada a pé (~${stop.walkDistanceMeters || 0}m${stop.walkFromStopId ? ` da Parada #${stop.walkFromStopId}` : ""}${stop.walkAnchorTitle ? ` • ${stop.walkAnchorTitle}` : ""})`;
+        walkBanner.textContent = `🚶 Percurso a pé: ~${stop.walkDistanceMeters || 0}m${stop.walkAnchorTitle ? ` • ${stop.walkAnchorTitle}` : ""}`;
         walkBanner.classList.remove("hidden");
       } else {
         walkBanner.classList.add("hidden");
@@ -692,16 +960,17 @@
     // Waze Navigation Link (only visible when navApp === "waze")
     const btnWaze = document.getElementById("btnNavigateWaze");
     if (btnWaze) {
-      btnWaze.href = RouteOptimizer.buildWazeUrl(stop);
+      btnWaze.href = RouteOptimizer.buildWazeUrl(getStopHub(stop) || stop);
     }
 
     // Full Google Maps Route Link (only visible when navApp === "maps")
     const btnCurFull = document.getElementById("btnCurrentStopFullRoute");
     if (btnCurFull) {
-      btnCurFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+      btnCurFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(getCarRoutingPoints());
     }
 
     syncNavAppUI();
+    renderHubWalkPlanCard(stop);
 
     // Arrival button state & Package List (Always visible as preview)
     const btnArrived = document.getElementById("btnMarkArrived");
@@ -874,6 +1143,7 @@
           </div>
           <div class="complement-pill"><strong>Complemento:</strong> ${it.complement}</div>
           ${extraDetails ? `<div class="meta-text" style="font-size:0.76rem;">${extraDetails}</div>` : ""}
+          ${buildPackageSpecControls(it)}
           ${photoBoxHtml}
           
           <!-- Seletor de 3 Estados: Entregue, Pendente e Não Entregue (Controle Opcional) -->
@@ -970,6 +1240,9 @@
 
     saveState();
     refreshActiveChecklists();
+    if (state.route && state.route.stops[state.activeStopIdx]) {
+      renderHubWalkPlanCard(state.route.stops[state.activeStopIdx]);
+    }
     updateHeader();
   }
 
@@ -1095,7 +1368,7 @@
 
     const btnAllFull = document.getElementById("btnAllStopsFullMaps");
     if (btnAllFull) {
-      btnAllFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(state.route.stops);
+      btnAllFull.href = RouteOptimizer.buildGoogleMapsRouteUrl(getCarRoutingPoints());
     }
     syncNavAppUI();
 
@@ -1108,10 +1381,10 @@
         const isDone = idx < state.activeStopIdx || allDelivered;
         const aptSummary = s.distinctAddresses > 1 ? ` • ${s.distinctAddresses} apts (~${s.distinctAddresses * 3} min)` : ` (~${(s.distinctAddresses || 1) * 3} min)`;
         const walkTagHtml = s.isWalkStop
-          ? `<div class="walk-stop-tag">🚶 A pé (~${s.walkDistanceMeters || 0}m${s.walkFromStopId ? ` da Parada #${s.walkFromStopId}` : ""})</div>`
+          ? `<div class="walk-stop-tag">🚶 Ponto #${s.hubId || s.walkFromStopId || "-"} (~${s.walkDistanceMeters || 0}m)</div>`
           : "";
         const wazeBtnHtml = isWaze
-          ? `<a href="${RouteOptimizer.buildWazeUrl(s)}" target="_blank" rel="noopener" class="btn btn-waze btn-xs" onclick="event.stopPropagation()">Waze</a>`
+          ? `<a href="${RouteOptimizer.buildWazeUrl(getStopHub(s) || s)}" target="_blank" rel="noopener" class="btn btn-waze btn-xs" onclick="event.stopPropagation()">Waze</a>`
           : "";
 
         return `
@@ -1346,6 +1619,7 @@
                 `).join("")}
               </div>
             </div>
+            ${buildPackageSpecControls(item)}
           </div>
 
           <div class="loading-item-photo-bar">
@@ -1680,14 +1954,16 @@
     const turnEl = document.getElementById("mapNextTurnInstruction");
     const pillEl = document.getElementById("mapActiveStopPill");
 
+    const hub = getStopHub(stop);
     if (kickerEl) {
-      kickerEl.textContent = state.route.usedRoadRouting
+      const hubTag = hub ? ` • Ponto #${hub.id} (${hub.stops.length} entrega${hub.stops.length > 1 ? "s" : ""})` : "";
+      kickerEl.textContent = (state.route.usedRoadRouting
         ? "Trajeto real pelas vias (OSRM)"
-        : "Modo offline (aproximação local)";
+        : "Modo offline (aproximação local)") + hubTag;
     }
     if (pillEl && stop) {
-      pillEl.textContent = stop.isWalkStop
-        ? `Parada #${stop.id} • 🚶 A pé`
+      pillEl.textContent = hub
+        ? `Ponto #${hub.id} • Parada #${stop.id}`
         : `Parada #${stop.id}`;
     }
     if (!turnEl || !stop) return;
@@ -1759,10 +2035,11 @@
     if (!state.map || !state.route || state.route.stops.length === 0) return;
 
     const stops = state.route.stops;
+    const hubs = Array.isArray(state.route.hubs) ? state.route.hubs : [];
     const hasRoadGeo = Array.isArray(state.route.routeGeometry) && state.route.routeGeometry.length > 1;
     const driveLatlngs = hasRoadGeo
       ? state.route.routeGeometry
-      : stops.filter((s) => !s.isWalkStop).map((s) => [s.lat, s.lon]);
+      : (hubs.length > 1 ? hubs.map((h) => [h.lat, h.lon]) : stops.filter((s) => !s.isWalkStop).map((s) => [s.lat, s.lon]));
     const pathLatlngs = driveLatlngs.length > 1 ? driveLatlngs : stops.map((s) => [s.lat, s.lon]);
 
     // Linha de Traçado das Vias (sólida quando calculada pelo OSRM, tracejada no modo offline)
@@ -1790,24 +2067,76 @@
       lineJoin: "round"
     }).addTo(state.map);
 
-    // Segmentos a pé (entre parada de estacionamento e entregas no alcance a pé)
-    const walkSegs = state.route.walkSegments || RouteOptimizer.buildWalkSegments(stops);
-    walkSegs.forEach((seg) => {
+    // Caminhos tracejados a pé seguindo calçadas/vias a partir de cada Ponto de Parada
+    const walkPolylines = Array.isArray(state.route.walkPolylines) ? state.route.walkPolylines : [];
+    const walkPaths = walkPolylines.length > 0
+      ? walkPolylines.map((wp) => wp.coords).filter((c) => Array.isArray(c) && c.length > 1)
+      : (state.route.walkSegments || RouteOptimizer.buildWalkSegments(stops));
+
+    walkPaths.forEach((seg) => {
       const wl = L.polyline(seg, {
         color: "#10b981",
         weight: 3.5,
-        opacity: 0.9,
+        opacity: 0.92,
         dashArray: "5, 6",
-        lineCap: "round"
+        lineCap: "round",
+        lineJoin: "round"
       }).addTo(state.map);
       state.markers.walkLines.push(wl);
     });
 
-    // Remove marcadores anteriores
+    // Remove marcadores anteriores de Pontos de Parada e Entregas
+    if (state.markers.allHubs && state.markers.allHubs.length > 0) {
+      state.markers.allHubs.forEach((m) => state.map.removeLayer(m));
+    }
+    state.markers.allHubs = [];
+
     if (state.markers.allStops && state.markers.allStops.length > 0) {
       state.markers.allStops.forEach((m) => state.map.removeLayer(m));
     }
     state.markers.allStops = [];
+
+    const activeStopObj = stops[state.activeStopIdx];
+    const activeHubId = activeStopObj ? activeStopObj.hubId : null;
+
+    // Plota Pontos de Parada (Hubs) no mapa
+    hubs.forEach((hub) => {
+      const isActiveHub = hub.id === activeHubId;
+      const plan = hub.walkPlan || RouteOptimizer.buildHubWalkPlan(hub, state.packageSpecs, state.results);
+      const hubIcon = L.divIcon({
+        className: "custom-stop-marker-wrap",
+        html: `<div class="map-hub-pin ${isActiveHub ? "active-hub" : ""}">P${hub.id}</div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+        popupAnchor: [0, -16]
+      });
+      const firstStopIdx = hub.stops && hub.stops[0]
+        ? stops.findIndex((s) => s.id === hub.stops[0].id)
+        : 0;
+      const returnTxt = plan.returnCount > 0 ? ` • ${plan.returnCount} volta(s) ao carro` : "";
+      const driveHref = state.navApp === "waze"
+        ? RouteOptimizer.buildWazeUrl(hub)
+        : RouteOptimizer.buildSingleStopGoogleMapsUrl(hub);
+      const hubPopupHtml = `
+        <div class="map-stop-popup">
+          <div class="map-stop-badge" style="color:#0284c7;">🅿️ PONTO DE PARADA #${hub.id}</div>
+          <div class="map-stop-title">${hub.title}</div>
+          <div class="map-stop-desc">${hub.stops.length} entrega(s) ao redor • ${plan.trips.length} viagem(ns)${returnTxt}</div>
+          <div style="display:flex; flex-direction:column; gap:5px; margin-top:8px;">
+            <a href="${plan.walkUrl}" target="_blank" rel="noopener" class="btn btn-maps btn-xs" style="text-align:center;">🚶 Rota a Pé do Ponto</a>
+            <a href="${driveHref}" target="_blank" rel="noopener" class="btn btn-outline btn-xs" style="text-align:center;">🚗 Dirigir até o Ponto</a>
+            ${firstStopIdx >= 0 ? `<button type="button" class="btn btn-primary btn-xs" onclick="app.jumpToStop(${firstStopIdx})">Ver Entregas deste Ponto</button>` : ""}
+          </div>
+        </div>
+      `;
+      const hMarker = L.marker([hub.lat, hub.lon], {
+        icon: hubIcon,
+        zIndexOffset: isActiveHub ? 1100 : 500
+      })
+        .addTo(state.map)
+        .bindPopup(hubPopupHtml);
+      state.markers.allHubs.push(hMarker);
+    });
 
     let currentMarker = null;
 
@@ -1852,7 +2181,7 @@
       });
 
       const walkInfoHtml = stop.isWalkStop
-        ? `<div class="walk-stop-tag" style="margin-top:4px;">🚶 ~${stop.walkDistanceMeters || 0}m da Parada #${stop.walkFromStopId || "-"}</div>`
+        ? `<div class="walk-stop-tag" style="margin-top:4px;">🚶 Percurso: ~${stop.walkDistanceMeters || 0}m (Ponto #${stop.hubId || stop.walkFromStopId || "-"})</div>`
         : "";
 
       const popupHtml = `
@@ -2027,14 +2356,19 @@
     const stop = state.route.stops[state.activeStopIdx];
     if (!stop) return;
 
-    const dist = Math.round(RouteOptimizer.haversineMeters(lat, lon, stop.lat, stop.lon));
+    const distStop = RouteOptimizer.haversineMeters(lat, lon, stop.lat, stop.lon);
+    const hub = getStopHub(stop);
+    const distHub = hub ? RouteOptimizer.haversineMeters(lat, lon, hub.lat, hub.lon) : distStop;
+    const dist = Math.round(Math.min(distStop, distHub));
     const pill = document.getElementById("gpsDistancePill");
     const textEl = document.getElementById("gpsDistanceText");
 
-    // Proximidade <= 65m da parada ativa aciona automaticamente a chegada
+    // Proximidade <= 65m da parada ou do ponto de parada aciona automaticamente a chegada
     if (dist <= 65) {
       if (pill) pill.classList.add("gps-near");
-      if (textEl) textEl.textContent = `📍 Você chegou! (${dist}m)`;
+      if (textEl) textEl.textContent = hub
+        ? `📍 Você chegou ao Ponto #${hub.id}! (${dist}m)`
+        : `📍 Você chegou! (${dist}m)`;
       if (!state.arrivedCurrent && state.autoArrivedStopId !== stop.id) {
         state.autoArrivedStopId = stop.id;
         markArrived(true);
@@ -2097,7 +2431,8 @@
     return null;
   }
 
-  function checkNearbyWalkDelivery() {
+  async function checkNearbyWalkDelivery() {
+    if (walkCheckInFlight) return;
     if (!state.route || !state.started || state.finished) return;
     if (!state.maxWalkDistanceMeters || state.maxWalkDistanceMeters <= 0) return;
 
@@ -2123,20 +2458,24 @@
     const origin = getWalkOriginCoords(currentStop);
     if (!origin) return;
 
-    const candidate = RouteOptimizer.findNearbyWalkCandidate(
-      state.route.stops,
-      state.activeStopIdx,
-      origin,
-      state.maxWalkDistanceMeters,
-      state.results,
-      state.dismissedWalkKeys
-    );
-
-    if (!candidate) return;
-
-    state.pendingWalkCandidate = candidate;
-    state.walkChecklistOpen = false;
-    openWalkPromptModal(candidate);
+    walkCheckInFlight = true;
+    try {
+      const candidate = await RouteOptimizer.findNearbyWalkCandidateAsync(
+        state.route.stops,
+        state.activeStopIdx,
+        origin,
+        state.maxWalkDistanceMeters,
+        state.results,
+        state.dismissedWalkKeys
+      );
+      if (!candidate) return;
+      if (!state.started || state.finished) return;
+      state.pendingWalkCandidate = candidate;
+      state.walkChecklistOpen = false;
+      openWalkPromptModal(candidate);
+    } finally {
+      walkCheckInFlight = false;
+    }
   }
 
   function openWalkPromptModal(candidate) {
@@ -2158,7 +2497,7 @@
       summaryBox.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="load-stop-badge">PARADA #${stop.id}</span>
-          <span class="badge badge-success">🚶 ~${distanceMeters}m de você</span>
+          <span class="badge badge-success">🚶 ~${distanceMeters}m pelas vias</span>
         </div>
         <div style="font-weight:800; font-size:1rem;">${stop.title}</div>
         <div class="meta-text">${stop.bairro} • ${stop.items.length} ${stop.items.length > 1 ? "pacotes" : "pacote"}</div>
@@ -2454,37 +2793,39 @@
   function openMultiBatchModal() {
     if (!state.route || state.route.stops.length === 0) return;
     const container = document.getElementById("multiBatchList");
-    const stops = state.route.stops;
-    const fullRouteUrl = RouteOptimizer.buildGoogleMapsRouteUrl(stops);
+    const points = getCarRoutingPoints();
+    const usingHubs = !!(state.route.hubs && state.route.hubs.length > 0);
+    const pointNoun = usingHubs ? "Pontos de Parada" : "Paradas";
+    const fullRouteUrl = RouteOptimizer.buildGoogleMapsRouteUrl(points);
     const batchSize = 10;
     const batches = [];
 
-    // Continuous overlapping legs: leg 0: 0..9 (stops 1..10), leg 1: 9..18 (stops 10..19), etc.
-    for (let i = 0; i < stops.length; i += (batchSize - 1)) {
-      const slice = stops.slice(i, i + batchSize);
+    // Continuous overlapping legs: leg 0: 0..9 (points 1..10), leg 1: 9..18 (points 10..19), etc.
+    for (let i = 0; i < points.length; i += (batchSize - 1)) {
+      const slice = points.slice(i, i + batchSize);
       if (slice.length <= 1 && batches.length > 0) break;
       const startId = slice[0].id;
       const endId = slice[slice.length - 1].id;
-      const url = RouteOptimizer.buildGoogleMapsRouteUrl(stops, i, batchSize);
+      const url = RouteOptimizer.buildGoogleMapsRouteUrl(points, i, batchSize);
       batches.push({ startId, endId, count: slice.length, url });
-      if (i + batchSize >= stops.length) break;
+      if (i + batchSize >= points.length) break;
     }
 
     container.innerHTML = `
       <div style="background:var(--bg-subtle); border:1px solid var(--border); border-radius:var(--radius); padding:12px; margin-bottom:10px;">
         <div style="font-weight:800; font-size:0.95rem; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-          ${renderIcon("mapPin", 16, "icon-primary")} Rota Completa Única (${stops.length} Paradas)
+          ${renderIcon("mapPin", 16, "icon-primary")} Rota Completa Única (${points.length} ${pointNoun})
         </div>
         <p class="meta-text" style="margin-bottom:10px; font-size:0.8rem;">
-          Gera um único link com todas as paradas nomeadas configuradas para navegação direta no Google Maps e Android Auto.
+          Gera um único link com todos os pontos de parada configurados para navegação direta no Google Maps e Android Auto.
         </p>
         <a href="${fullRouteUrl}" target="_blank" rel="noopener" class="btn btn-maps" style="text-align:center;">
-          ${renderIcon("externalLink", 16)} Abrir Todas as ${stops.length} Paradas no Google Maps
+          ${renderIcon("externalLink", 16)} Abrir Todos os ${points.length} ${pointNoun} no Maps
         </a>
       </div>
 
       <div style="font-size:0.75rem; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin:8px 0 6px 0;">
-        Trechos Contínuos (10 paradas - recomendado para navegação no carro):
+        Trechos Contínuos (10 pontos - recomendado para navegação no carro):
       </div>
 
       <div style="display:flex; flex-direction:column; gap:8px;">
@@ -2494,7 +2835,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center; padding:10px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius);">
             <div>
               <div style="font-weight:700; font-size:0.88rem;">Trecho #${b.startId} até #${b.endId}</div>
-              <div class="meta-text" style="font-size:0.78rem;">${b.count} paradas sequenciais</div>
+              <div class="meta-text" style="font-size:0.78rem;">${b.count} ${pointNoun.toLowerCase()} sequenciais</div>
             </div>
             <a href="${b.url}" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="width:auto; padding:6px 12px;">
               ${renderIcon("navigation", 14)} Navegar
@@ -2768,6 +3109,22 @@
         switchTab(state.activeTab || "current");
       } else {
         switchScreen("home");
+      }
+
+      // Auto-recalculate if stored route uses an older schema or mismatched walk distance
+      if (
+        state.route &&
+        !state.finished &&
+        state.route.stops &&
+        state.route.stops.length > 0 &&
+        (state.route.schemaVersion !== 3 ||
+          state.route.walkRadiusUsed !== state.maxWalkDistanceMeters ||
+          !Array.isArray(state.route.hubs) ||
+          state.route.stops.some((s) => s.isWalkStop && (s.walkDistanceMeters || 0) > state.maxWalkDistanceMeters))
+      ) {
+        setTimeout(() => {
+          recalculateAllRoutes();
+        }, 150);
       }
     });
 
@@ -3172,6 +3529,8 @@
     centerMapOnCurrent,
     fitAllStopsMap,
     toggleFollowGps,
+    setPackageSpec,
+    recalculateAllRoutes,
     installPwa,
     jumpFromSearch,
     openMultiBatchModal,

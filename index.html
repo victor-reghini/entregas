@@ -43,7 +43,7 @@
   <script src="vendor/firebase-firestore-compat.js"></script>
 
   <!-- App Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=1.1.4" />
+  <link rel="stylesheet" href="css/style.css?v=1.1.8" />
 </head>
 <body>
   <!-- HEADER COMPACTO MOBILE-FIRST -->
@@ -266,6 +266,7 @@
           </div>
           <div class="walk-presets" id="walkPresetPills">
             <button type="button" class="filter-pill" data-walk-meters="0" onclick="app.setMaxWalkDistance(0)">Desativado</button>
+            <button type="button" class="filter-pill" data-walk-meters="50" onclick="app.setMaxWalkDistance(50)">50m</button>
             <button type="button" class="filter-pill" data-walk-meters="80" onclick="app.setMaxWalkDistance(80)">80m</button>
             <button type="button" class="filter-pill active" data-walk-meters="150" onclick="app.setMaxWalkDistance(150)">150m</button>
             <button type="button" class="filter-pill" data-walk-meters="250" onclick="app.setMaxWalkDistance(250)">250m</button>
@@ -309,6 +310,11 @@
           <button type="button" class="btn btn-secondary btn-sm" id="btnOpenMultiBatchModal">
             <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/></svg>
             Ver Trechos Divididos (10 Paradas / Android Auto)
+          </button>
+
+          <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesHome" onclick="app.recalculateAllRoutes()">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Recalcular Rotas
           </button>
         </div>
 
@@ -429,6 +435,23 @@
           </div>
         </div>
 
+        <!-- PLANO DE ENTREGAS A PÉ DO PONTO DE PARADA (VOLTAS AO CARRO + LINK CAMINHADA) -->
+        <div id="hubWalkPlanCard" class="card hub-walk-card hidden">
+          <div class="card-header" style="margin-bottom:6px;">
+            <div>
+              <div class="kicker" style="color:var(--info, #0284c7);">
+                🅿️ <span id="hubWalkCardLabel">Ponto de Parada #1</span>
+              </div>
+              <div style="font-size:0.95rem; font-weight:800;" id="hubWalkCardTitle">Rota a Pé e Voltas ao Carro</div>
+            </div>
+            <span class="badge badge-primary" id="hubWalkTripsBadge">1 ida</span>
+          </div>
+          <p class="meta-text" id="hubWalkCardHint" style="font-size:0.76rem; margin-bottom:8px; line-height:1.35;">
+            Estacione no ponto de parada e siga a ordem abaixo considerando tamanho e peso dos pacotes.
+          </p>
+          <div id="hubWalkTripsList" class="hub-walk-trips-list"></div>
+        </div>
+
         <!-- PRÉ-VISUALIZAÇÃO / CHECKLIST DE PACOTES NO ENDEREÇO -->
         <div id="stopChecklistBox" class="card">
           <div class="card-header">
@@ -482,7 +505,11 @@
             <div class="kicker">Sequência Sem Zigue-Zague</div>
             <div style="font-weight:800; font-size:1.1rem;">Todas as Paradas da Rota</div>
           </div>
-          <div style="display:flex; align-items:center; gap:6px;">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesAll" style="width:auto; padding:5px 10px;" onclick="app.recalculateAllRoutes()" title="Refazer todas as rotas">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              Recalcular
+            </button>
             <a id="btnAllStopsFullMaps" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="width:auto; padding:5px 10px;">
               <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
               Rota Completa
@@ -602,6 +629,10 @@
             <div style="font-weight:800; font-size:1.1rem;">Mapa da Rota</div>
           </div>
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesMap" style="width:auto; padding:5px 8px;" onclick="app.recalculateAllRoutes()" title="Refazer todas as rotas">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              Recalcular
+            </button>
             <button type="button" class="btn btn-outline btn-sm" id="btnToggleFollowGps" style="width:auto; padding:5px 8px;" onclick="app.toggleFollowGps()">
               Seguir GPS
             </button>
@@ -624,8 +655,9 @@
         <div id="map"></div>
 
         <div class="map-legend-row">
-          <span><i class="map-legend-swatch map-legend-drive"></i> Carro (pelas vias)</span>
-          <span><i class="map-legend-swatch map-legend-walk"></i> A pé (alcance)</span>
+          <span><i class="map-legend-swatch map-legend-drive"></i> Carro (pelas ruas)</span>
+          <span><i class="map-legend-swatch map-legend-hub"></i> Ponto de Parada</span>
+          <span><i class="map-legend-swatch map-legend-walk"></i> A pé (calçadas/vias)</span>
         </div>
 
         <div id="mapCarSyncBox" class="map-car-sync-box">
@@ -1000,11 +1032,11 @@
   <script>window.__ENV__ = window.__ENV__ || {};</script>
   <script src="js/env.js"></script>
   <script src="js/icons.js"></script>
-  <script src="js/optimizer.js?v=1.1.4"></script>
+  <script src="js/optimizer.js?v=1.1.8"></script>
   <script src="js/scanner.js"></script>
   <script src="js/photo-storage.js"></script>
   <script src="js/firebase-service.js"></script>
-  <script src="js/app.js?v=1.1.4"></script>
+  <script src="js/app.js?v=1.1.8"></script>
 
   <script>
     // Handlers para os modais de autenticação e configuração (Sem alertas nativos)

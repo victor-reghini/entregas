@@ -1,18 +1,18 @@
 // Organiza Entregas - Service Worker Offline First
-const APP_VERSION = "1.1.4";
-const CACHE_NAME = "organiza-entregas-v14";
+const APP_VERSION = "1.1.8";
+const CACHE_NAME = "organiza-entregas-v18";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./css/style.css?v=1.1.4",
+  "./css/style.css?v=1.1.8",
   "./js/env.js",
   "./js/icons.js",
-  "./js/optimizer.js?v=1.1.4",
+  "./js/optimizer.js?v=1.1.8",
   "./js/scanner.js",
   "./js/photo-storage.js",
   "./js/firebase-service.js",
-  "./js/app.js?v=1.1.4",
+  "./js/app.js?v=1.1.8",
   "./apple-touch-icon.png",
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",
@@ -34,6 +34,7 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       const freshRequests = STATIC_ASSETS.map((url) => new Request(url, { cache: "reload" }));
@@ -75,21 +76,31 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Atomic version cache: serve navigation & static assets from this SW's CACHE_NAME first
-  // so HTML/CSS/JS always stay in sync until the user confirms the new SW version.
-  if (event.request.mode === "navigate" || event.request.headers.get("accept")?.includes("text/html")) {
+  // Network-first for HTML, JS, and CSS so updates take effect immediately on reload;
+  // falls back to cache when offline.
+  const isCodeOrHtml =
+    event.request.mode === "navigate" ||
+    event.request.headers.get("accept")?.includes("text/html") ||
+    url.pathname.endsWith(".html") ||
+    url.pathname.endsWith(".js") ||
+    url.pathname.endsWith(".css") ||
+    url.pathname.endsWith("/");
+
+  if (isCodeOrHtml) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(event.request) || await cache.match("./index.html") || await cache.match("./");
-        if (cached) return cached;
         try {
-          const networkResponse = await fetch(event.request);
+          const networkResponse = await fetch(new Request(event.request, { cache: "no-cache" }));
           if (networkResponse && networkResponse.status === 200) {
-            cache.put("./index.html", networkResponse.clone());
+            cache.put(event.request, networkResponse.clone());
+            if (event.request.mode === "navigate") {
+              cache.put("./index.html", networkResponse.clone());
+            }
           }
           return networkResponse;
         } catch {
-          return Response.error();
+          const cached = await cache.match(event.request) || await cache.match("./index.html") || await cache.match("./");
+          return cached || Response.error();
         }
       })
     );

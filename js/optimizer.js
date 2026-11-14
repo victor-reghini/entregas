@@ -199,7 +199,7 @@ const RouteOptimizer = (function () {
 
     const headers = splitLine(lines[0]).map((h) => h.toLowerCase().replace(/[\s/_-]+/g, ""));
     const colMap = {
-      tn: headers.findIndex((h) => h.includes("spxtn") || h.includes("tn") || h.includes("rastreio") || h.includes("pacote")),
+      tn: headers.findIndex((h) => h.includes("spxtn") || h.includes("tracking") || h.includes("tn") || h.includes("rastreio") || h.includes("pacote")),
       address: headers.findIndex((h) => h.includes("destinationaddress") || h.includes("address") || h.includes("endereco")),
       bairro: headers.findIndex((h) => h.includes("bairro") || h.includes("neighborhood")),
       city: headers.findIndex((h) => h.includes("city") || h.includes("cidade")),
@@ -209,7 +209,9 @@ const RouteOptimizer = (function () {
       atId: headers.findIndex((h) => h.includes("atid") || h.includes("id")),
       recipient: headers.findIndex((h) => h.includes("buyer") || h.includes("destinatario") || h.includes("receiver") || h.includes("recipient") || h.includes("cliente") || h === "nome"),
       notes: headers.findIndex((h) => h.includes("remark") || h.includes("observa") || h.includes("obs") || h.includes("instruc") || h.includes("referencia") || h.includes("note")),
-      sortCode: headers.findIndex((h) => h.includes("sortcode") || h.includes("gaiola") || h.includes("corredor") || h.includes("zona") || h.includes("zone") || h.includes("lote"))
+      sortCode: headers.findIndex((h) => h.includes("sortcode") || h.includes("gaiola") || h.includes("corredor") || h.includes("zona") || h.includes("zone") || h.includes("lote")),
+      size: headers.findIndex((h) => h.includes("tamanho") || h.includes("porte") || h.includes("size") || h.includes("volume")),
+      weight: headers.findIndex((h) => h.includes("peso") || h.includes("weight") || h === "kg")
     };
 
     // Defaults if headers not matched standard names
@@ -238,8 +240,10 @@ const RouteOptimizer = (function () {
       const recipient = colMap.recipient >= 0 ? (cols[colMap.recipient] || "") : "";
       const notes = colMap.notes >= 0 ? (cols[colMap.notes] || "") : "";
       const sortCode = colMap.sortCode >= 0 ? (cols[colMap.sortCode] || "") : "";
+      const size = colMap.size >= 0 ? normalizePackageSize(cols[colMap.size]) : "m";
+      const weight = colMap.weight >= 0 ? normalizePackageWeight(cols[colMap.weight]) : "light";
 
-      rows.push({ tn, address: rawAddress, bairro, city, zipcode, lat, lon, atId, recipient, notes, sortCode });
+      rows.push({ tn, address: rawAddress, bairro, city, zipcode, lat, lon, atId, recipient, notes, sortCode, size, weight });
     }
     return rows;
   }
@@ -292,22 +296,102 @@ const RouteOptimizer = (function () {
     return ordered;
   }
 
-  // Group nearby stops within walkRadiusMeters around dense parking anchors
-  function buildWalkClusters(stops, walkRadiusMeters = 0) {
+  const PACKAGE_SIZE_UNITS = { xs: 1, s: 2, m: 4, l: 7, xl: 11 };
+  const PACKAGE_WEIGHT_UNITS = { light: 1, medium: 2, heavy: 4 };
+  const PACKAGE_SIZE_LABELS = {
+    xs: "Muito Pequeno",
+    s: "Pequeno",
+    m: "Médio",
+    l: "Grande",
+    xl: "Muito Grande"
+  };
+  const PACKAGE_WEIGHT_LABELS = {
+    light: "Leve",
+    medium: "Médio",
+    heavy: "Pesado"
+  };
+  const WALK_TRIP_MAX_SIZE = 12;
+  const WALK_TRIP_MAX_WEIGHT = 6;
+  const WALK_TRIP_MAX_ITEMS = 6;
+
+  function normalizePackageSize(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (!s) return "m";
+    if (s === "xs" || s.includes("muito peq") || s === "pp") return "xs";
+    if (s === "s" || s === "p" || s.includes("pequeno")) return "s";
+    if (s === "xl" || s === "gg" || s.includes("muito gra")) return "xl";
+    if (s === "l" || s === "g" || s.includes("grande")) return "l";
+    return "m";
+  }
+
+  function normalizePackageWeight(raw) {
+    const s = String(raw || "").trim().toLowerCase();
+    if (!s) return "light";
+    if (s === "heavy" || s.includes("pesad")) return "heavy";
+    if (s === "medium" || s.includes("medi") || s.includes("médi")) return "medium";
+    const num = parseFloat(s.replace(",", "."));
+    if (!Number.isNaN(num)) {
+      if (num >= 8) return "heavy";
+      if (num >= 3) return "medium";
+      return "light";
+    }
+    return "light";
+  }
+
+  function getItemCarryCost(item, packageSpecs = {}) {
+    const spec = (packageSpecs && item && packageSpecs[item.tn]) || {};
+    const sizeKey = normalizePackageSize(spec.size || (item && item.size) || "m");
+    const weightKey = normalizePackageWeight(spec.weight || (item && item.weight) || "light");
+    return {
+      sizeKey,
+      weightKey,
+      sizeUnits: PACKAGE_SIZE_UNITS[sizeKey] || 4,
+      weightUnits: PACKAGE_WEIGHT_UNITS[weightKey] || 1
+    };
+  }
+
+  function estimateOfflineWalkMeters(stopA, stopB) {
+    if (!stopA || !stopB || !stopA.lat || !stopA.lon || !stopB.lat || !stopB.lon) return 0;
+    const straight = haversineMeters(stopA.lat, stopA.lon, stopB.lat, stopB.lon);
+    if (straight <= 1) return 0;
+    const sameStreet = stopA.street && stopB.street && normalizeStreetKey(stopA.street) === normalizeStreetKey(stopB.street);
+    return straight * (sameStreet ? 1.04 : 1.10);
+  }
+
+  // Max-coverage Parking Hubs based on cumulative walking route distance (percurso <= walkRadiusMeters)
+  function buildParkingHubs(stops, walkRadiusMeters = 0, externalFootMatrix = null) {
     if (!stops || stops.length === 0) return [];
     const radius = Math.max(0, parseInt(walkRadiusMeters, 10) || 0);
 
     const cloned = stops.map((s) => ({
       ...s,
       isWalkStop: false,
+      hubId: null,
+      hubLat: s.lat,
+      hubLon: s.lon,
+      hubLabel: s.title,
       walkFromStopId: null,
       walkAnchorTitle: "",
+      walkTripNumber: 1,
       walkDistanceMeters: 0,
       walkClusterSize: 1
     }));
 
     if (radius <= 0) {
-      return cloned.map((s) => ({ anchor: s, stops: [s] }));
+      return cloned.map((s) => ({
+        isParkingHub: true,
+        lat: s.lat,
+        lon: s.lon,
+        street: s.street,
+        bairro: s.bairro,
+        city: s.city,
+        streetHint: s.title,
+        roadName: "",
+        footDistances: {},
+        footPairDistances: {},
+        usedFootDistance: false,
+        stops: [s]
+      }));
     }
 
     const withCoords = [];
@@ -317,87 +401,403 @@ const RouteOptimizer = (function () {
       else withoutCoords.push(s);
     });
 
+    const hasFootMat = Array.isArray(externalFootMatrix) && externalFootMatrix.length === withCoords.length;
+    const stepWalkDist = (i, j) => {
+      if (i === j) return 0;
+      if (hasFootMat && externalFootMatrix[i] && typeof externalFootMatrix[i][j] === "number" && Number.isFinite(externalFootMatrix[i][j])) {
+        return externalFootMatrix[i][j];
+      }
+      return estimateOfflineWalkMeters(withCoords[i], withCoords[j]);
+    };
+
     const assigned = new Set();
-    const clusters = [];
+    const hubs = [];
 
     while (assigned.size < withCoords.length) {
-      let bestIdx = -1;
-      let bestNeighbors = [];
-
+      const uncovered = [];
       for (let i = 0; i < withCoords.length; i++) {
-        if (assigned.has(i)) continue;
-        const neighbors = [];
-        for (let j = 0; j < withCoords.length; j++) {
-          if (i === j || assigned.has(j)) continue;
-          const d = haversineMeters(
-            withCoords[i].lat,
-            withCoords[i].lon,
-            withCoords[j].lat,
-            withCoords[j].lon
-          );
-          if (d <= radius) neighbors.push(j);
+        if (!assigned.has(i)) uncovered.push(i);
+      }
+
+      let bestChain = [];
+      let bestPercursoMap = {};
+      let bestTotalPercurso = Infinity;
+
+      // Evaluate each uncovered stop as the start of a sequential walking route (percurso <= radius)
+      for (const startIdx of uncovered) {
+        const chain = [startIdx];
+        const inChain = new Set([startIdx]);
+        const percursoMap = { [startIdx]: 0 };
+        let curIdx = startIdx;
+        let cumPercurso = 0;
+
+        while (true) {
+          let nextIdx = -1;
+          let bestStep = Infinity;
+          for (const candIdx of uncovered) {
+            if (inChain.has(candIdx)) continue;
+            const dStep = stepWalkDist(curIdx, candIdx);
+            const dFromOrigin = stepWalkDist(startIdx, candIdx);
+            // Enforce both direct reach AND cumulative walking path (percurso) <= radius
+            if (dFromOrigin <= radius && cumPercurso + dStep <= radius && dStep < bestStep) {
+              bestStep = dStep;
+              nextIdx = candIdx;
+            }
+          }
+          if (nextIdx === -1) break;
+          cumPercurso += bestStep;
+          chain.push(nextIdx);
+          inChain.add(nextIdx);
+          percursoMap[nextIdx] = Math.round(cumPercurso);
+          curIdx = nextIdx;
         }
-        if (neighbors.length > bestNeighbors.length || bestIdx === -1) {
-          bestIdx = i;
-          bestNeighbors = neighbors;
+
+        if (
+          chain.length > bestChain.length ||
+          (chain.length === bestChain.length && cumPercurso < bestTotalPercurso)
+        ) {
+          bestChain = chain;
+          bestPercursoMap = percursoMap;
+          bestTotalPercurso = cumPercurso;
         }
       }
 
-      if (bestIdx === -1) break;
-      assigned.add(bestIdx);
-      const anchor = withCoords[bestIdx];
-      const clusterIndices = [];
-      bestNeighbors.forEach((j) => {
-        assigned.add(j);
-        clusterIndices.push(j);
-      });
+      if (bestChain.length === 0) break;
 
-      // Chain walk stops from anchor by nearest walking hop
-      const clusterStops = [anchor];
-      const pendingWalk = clusterIndices.map((idx) => withCoords[idx]);
-      let walkPos = anchor;
-      while (pendingWalk.length > 0) {
-        let nearIdx = 0;
-        let nearDist = Infinity;
-        for (let k = 0; k < pendingWalk.length; k++) {
-          const d = haversineMeters(walkPos.lat, walkPos.lon, pendingWalk[k].lat, pendingWalk[k].lon);
-          if (d < nearDist) {
-            nearDist = d;
-            nearIdx = k;
+      bestChain.forEach((idx) => assigned.add(idx));
+      const memberStops = bestChain.map((idx) => withCoords[idx]);
+      const firstStop = memberStops[0];
+
+      // Shift parking point slightly toward the group centroid if cumulative percurso remains <= radius
+      let hubLat = firstStop.lat;
+      let hubLon = firstStop.lon;
+      let initialOffsetMeters = 0;
+      if (memberStops.length > 1) {
+        const cLat = memberStops.reduce((s, st) => s + st.lat, 0) / memberStops.length;
+        const cLon = memberStops.reduce((s, st) => s + st.lon, 0) / memberStops.length;
+        const fullCentroidDist = estimateOfflineWalkMeters({ lat: cLat, lon: cLon, street: firstStop.street }, firstStop);
+        if (fullCentroidDist + bestTotalPercurso <= radius) {
+          hubLat = cLat;
+          hubLon = cLon;
+          initialOffsetMeters = Math.round(fullCentroidDist);
+        } else {
+          const blendLat = firstStop.lat * 0.9 + cLat * 0.1;
+          const blendLon = firstStop.lon * 0.9 + cLon * 0.1;
+          const blendDist = estimateOfflineWalkMeters({ lat: blendLat, lon: blendLon, street: firstStop.street }, firstStop);
+          if (blendDist + bestTotalPercurso <= radius + 2) {
+            hubLat = blendLat;
+            hubLon = blendLon;
+            initialOffsetMeters = Math.round(blendDist);
           }
         }
-        const nextWalk = pendingWalk.splice(nearIdx, 1)[0];
-        nextWalk.isWalkStop = true;
-        nextWalk.walkAnchorTitle = anchor.title;
-        nextWalk.walkDistanceMeters = Math.round(
-          haversineMeters(anchor.lat, anchor.lon, nextWalk.lat, nextWalk.lon)
-        );
-        clusterStops.push(nextWalk);
-        walkPos = nextWalk;
       }
 
-      clusterStops.forEach((st) => {
-        st.walkClusterSize = clusterStops.length;
+      const footDistances = {};
+      const footPairDistances = {};
+      bestChain.forEach((idx) => {
+        const st = withCoords[idx];
+        footDistances[stopCoordKey(st)] = Math.min(radius, (bestPercursoMap[idx] || 0) + initialOffsetMeters);
       });
-      clusters.push({ anchor, stops: clusterStops });
+      for (let a = 0; a < bestChain.length; a++) {
+        for (let b = 0; b < bestChain.length; b++) {
+          if (a === b) continue;
+          const idxA = bestChain[a];
+          const idxB = bestChain[b];
+          footPairDistances[`${stopCoordKey(withCoords[idxA])}=>${stopCoordKey(withCoords[idxB])}`] = Math.round(stepWalkDist(idxA, idxB));
+        }
+      }
+
+      hubs.push({
+        isParkingHub: true,
+        lat: hubLat,
+        lon: hubLon,
+        street: firstStop.street,
+        bairro: firstStop.bairro,
+        city: firstStop.city,
+        streetHint: firstStop.title,
+        roadName: "",
+        footDistances,
+        footPairDistances,
+        usedFootDistance: hasFootMat,
+        stops: memberStops
+      });
     }
 
-    withoutCoords.forEach((s) => clusters.push({ anchor: s, stops: [s] }));
-    return clusters;
+    withoutCoords.forEach((s) => {
+      hubs.push({
+        isParkingHub: true,
+        lat: s.lat,
+        lon: s.lon,
+        street: s.street,
+        bairro: s.bairro,
+        city: s.city,
+        streetHint: s.title,
+        roadName: "",
+        footDistances: {},
+        footPairDistances: {},
+        usedFootDistance: false,
+        stops: [s]
+      });
+    });
+
+    return hubs;
+  }
+
+  function formatWalkingStopParam(stop) {
+    if (stop && stop.street && stop.street !== "Desconhecido") {
+      return encodeURIComponent(formatStopLabel({ ...stop, isParkingHub: false }));
+    }
+    return `${stop.lat},${stop.lon}`;
+  }
+
+  function buildWalkingTripUrl(hub, tripStops, includeReturnToCar = false) {
+    if (!hub || !hub.lat || !hub.lon || !tripStops || tripStops.length === 0) return "#";
+    const origin = `${hub.lat},${hub.lon}`;
+    const validStops = tripStops.filter((s) => (s.lat && s.lon) || (s.street && s.street !== "Desconhecido"));
+    if (validStops.length === 0) return "#";
+
+    if (!includeReturnToCar && validStops.length === 1) {
+      const d = validStops[0];
+      return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${formatWalkingStopParam(d)}&travelmode=walking`;
+    }
+
+    const waypoints = validStops.map(formatWalkingStopParam);
+    let destination;
+    if (includeReturnToCar) {
+      destination = origin;
+    } else {
+      destination = waypoints.pop();
+    }
+    const wpParam = waypoints.length > 0 ? `&waypoints=${waypoints.join("%7C")}` : "";
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${wpParam}&travelmode=walking`;
+  }
+
+  function stopCoordKey(stop) {
+    if (!stop) return "";
+    return `${stop.title || stop.street || ""}|${stop.lat || 0},${stop.lon || 0}`;
+  }
+
+  function getWalkStepMeters(hub, fromStop, toStop) {
+    if (!toStop) return 0;
+    const toKey = stopCoordKey(toStop);
+    if (!fromStop) {
+      if (hub && hub.footDistances && typeof hub.footDistances[toKey] === "number") {
+        return hub.footDistances[toKey];
+      }
+      if (typeof toStop.walkDistanceMeters === "number" && toStop.walkDistanceMeters > 0) {
+        return toStop.walkDistanceMeters;
+      }
+      return haversineMeters(hub.lat, hub.lon, toStop.lat, toStop.lon);
+    }
+    const fromKey = stopCoordKey(fromStop);
+    const pairKey = `${fromKey}=>${toKey}`;
+    if (hub && hub.footPairDistances && typeof hub.footPairDistances[pairKey] === "number") {
+      return hub.footPairDistances[pairKey];
+    }
+    return haversineMeters(fromStop.lat, fromStop.lon, toStop.lat, toStop.lon);
+  }
+
+  // Build capacitated walking trips from a Parking Hub (splitting trips + adding returns to car)
+  function buildHubWalkPlan(hub, packageSpecs = {}, results = {}) {
+    if (!hub || !hub.stops || hub.stops.length === 0) {
+      return { trips: [], walkUrl: "#", returnCount: 0, totalStops: 0, totalPackages: 0 };
+    }
+
+    const carryUnits = [];
+    let totalPendingPackages = 0;
+
+    hub.stops.forEach((stop) => {
+      const pendingItems = (stop.items || []).filter(
+        (it) => !results[it.tn] || results[it.tn].status === "pending"
+      );
+      if (pendingItems.length === 0) return;
+
+      totalPendingPackages += pendingItems.length;
+      const itemLoads = pendingItems.map((it) => ({
+        item: it,
+        ...getItemCarryCost(it, packageSpecs)
+      }));
+
+      const stopTotalSize = itemLoads.reduce((a, b) => a + b.sizeUnits, 0);
+      const stopTotalWeight = itemLoads.reduce((a, b) => a + b.weightUnits, 0);
+
+      // If all packages at this address fit in 1 single trip capacity, keep them together
+      if (
+        stopTotalSize <= WALK_TRIP_MAX_SIZE &&
+        stopTotalWeight <= WALK_TRIP_MAX_WEIGHT &&
+        itemLoads.length <= WALK_TRIP_MAX_ITEMS
+      ) {
+        carryUnits.push({
+          stop,
+          items: pendingItems,
+          sizeUnits: stopTotalSize,
+          weightUnits: stopTotalWeight,
+          itemCount: pendingItems.length
+        });
+      } else {
+        // Oversized multi-package address: split packages into carryable sub-batches returning to car
+        let curItems = [];
+        let curSize = 0;
+        let curWeight = 0;
+        for (const il of itemLoads) {
+          if (
+            curItems.length > 0 &&
+            (curSize + il.sizeUnits > WALK_TRIP_MAX_SIZE ||
+              curWeight + il.weightUnits > WALK_TRIP_MAX_WEIGHT ||
+              curItems.length + 1 > WALK_TRIP_MAX_ITEMS)
+          ) {
+            carryUnits.push({
+              stop,
+              items: curItems,
+              sizeUnits: curSize,
+              weightUnits: curWeight,
+              itemCount: curItems.length
+            });
+            curItems = [];
+            curSize = 0;
+            curWeight = 0;
+          }
+          curItems.push(il.item);
+          curSize += il.sizeUnits;
+          curWeight += il.weightUnits;
+        }
+        if (curItems.length > 0) {
+          carryUnits.push({
+            stop,
+            items: curItems,
+            sizeUnits: curSize,
+            weightUnits: curWeight,
+            itemCount: curItems.length
+          });
+        }
+      }
+    });
+
+    if (carryUnits.length === 0) {
+      return { trips: [], walkUrl: "#", returnCount: 0, totalStops: 0, totalPackages: 0 };
+    }
+
+    const remaining = carryUnits.slice();
+    const trips = [];
+    let tripNum = 0;
+
+    while (remaining.length > 0) {
+      tripNum++;
+      const tripUnits = [];
+      let remSize = WALK_TRIP_MAX_SIZE;
+      let remWeight = WALK_TRIP_MAX_WEIGHT;
+      let remItems = WALK_TRIP_MAX_ITEMS;
+      let curStop = null;
+
+      while (remaining.length > 0) {
+        let bestIdx = -1;
+        let bestScore = Infinity;
+
+        for (let i = 0; i < remaining.length; i++) {
+          const u = remaining[i];
+          const fits =
+            tripUnits.length === 0 ||
+            (u.sizeUnits <= remSize && u.weightUnits <= remWeight && u.itemCount <= remItems);
+          if (!fits) continue;
+
+          const dist = getWalkStepMeters(hub, curStop, u.stop);
+          // Slightly prefer dropping heavier/larger parcels earlier when distances are similar
+          const heavyBonus = (u.weightUnits * 3 + u.sizeUnits) * 2;
+          const score = dist - (tripUnits.length === 0 ? heavyBonus : 0);
+          if (score < bestScore) {
+            bestScore = score;
+            bestIdx = i;
+          }
+        }
+
+        if (bestIdx === -1) break;
+        const chosen = remaining.splice(bestIdx, 1)[0];
+        tripUnits.push(chosen);
+        remSize -= chosen.sizeUnits;
+        remWeight -= chosen.weightUnits;
+        remItems -= chosen.itemCount;
+        if (chosen.stop && chosen.stop.lat && chosen.stop.lon) {
+          curStop = chosen.stop;
+        }
+      }
+
+      const returnToCarAfter = remaining.length > 0;
+      const tripStops = [];
+      const seenStops = new Set();
+      tripUnits.forEach((u) => {
+        if (!seenStops.has(u.stop)) {
+          seenStops.add(u.stop);
+          tripStops.push(u.stop);
+        }
+      });
+
+      // Compute pedestrian path walk estimate (preferring sidewalk distances over straight-line)
+      let walkMeters = 0;
+      let prevStop = null;
+      tripStops.forEach((st) => {
+        walkMeters += getWalkStepMeters(hub, prevStop, st);
+        prevStop = st;
+      });
+      if (returnToCarAfter && prevStop) {
+        walkMeters += getWalkStepMeters(hub, null, prevStop);
+      }
+
+      trips.push({
+        tripNumber: tripNum,
+        units: tripUnits,
+        stops: tripStops,
+        items: tripUnits.flatMap((u) => u.items),
+        totalSizeUnits: tripUnits.reduce((a, b) => a + b.sizeUnits, 0),
+        totalWeightUnits: tripUnits.reduce((a, b) => a + b.weightUnits, 0),
+        returnToCarAfter,
+        walkMetersEstimate: Math.round(walkMeters),
+        walkUrl: buildWalkingTripUrl(hub, tripStops, returnToCarAfter),
+        geometry: null,
+        usedFootRouting: false
+      });
+    }
+
+    const allTripStops = [];
+    const seenAll = new Set();
+    trips.forEach((tr) => tr.stops.forEach((st) => {
+      if (!seenAll.has(st)) {
+        seenAll.add(st);
+        allTripStops.push(st);
+      }
+    }));
+
+    return {
+      trips,
+      returnCount: trips.filter((t) => t.returnToCarAfter).length,
+      totalStops: allTripStops.length,
+      totalPackages: totalPendingPackages,
+      walkUrl: buildWalkingTripUrl(hub, allTripStops, false)
+    };
   }
 
   function buildWalkSegments(stops) {
     if (!stops || stops.length === 0) return [];
     const segments = [];
-    let activeAnchor = null;
+    const byHub = new Map();
     stops.forEach((s) => {
-      if (!s.isWalkStop) {
-        activeAnchor = s;
-      } else if (activeAnchor && activeAnchor.lat && activeAnchor.lon && s.lat && s.lon) {
-        s.walkFromStopId = activeAnchor.id || null;
-        s.walkAnchorTitle = activeAnchor.title || s.walkAnchorTitle;
-        segments.push([[activeAnchor.lat, activeAnchor.lon], [s.lat, s.lon]]);
-      }
+      if (!s.lat || !s.lon) return;
+      const hKey = s.hubId || s.id;
+      if (!byHub.has(hKey)) byHub.set(hKey, []);
+      byHub.get(hKey).push(s);
+    });
+    byHub.forEach((hubStops) => {
+      const first = hubStops[0];
+      let prevLat = first.hubLat || first.lat;
+      let prevLon = first.hubLon || first.lon;
+      hubStops.forEach((s) => {
+        if (s.isWalkStop || haversineMeters(prevLat, prevLon, s.lat, s.lon) > 5) {
+          if (haversineMeters(prevLat, prevLon, s.lat, s.lon) > 2) {
+            segments.push([[prevLat, prevLon], [s.lat, s.lon]]);
+          }
+          prevLat = s.lat;
+          prevLon = s.lon;
+        }
+      });
     });
     return segments;
   }
@@ -517,39 +917,73 @@ const RouteOptimizer = (function () {
     };
   }
 
-  function flattenClustersWithAnchorChain(clusters, orderedAnchors) {
-    const clusterByAnchor = new Map();
-    clusters.forEach((c) => clusterByAnchor.set(c.anchor, c));
+  function finalizeHubRoute(orderedHubs, packageSpecs = {}, reverse = false, roadData = null, walkPolylines = []) {
+    const hubsWorking = reverse ? orderedHubs.slice().reverse() : orderedHubs.slice();
     const orderedStops = [];
-    orderedAnchors.forEach((a) => {
-      const cluster = clusterByAnchor.get(a);
-      if (cluster) {
-        cluster.stops.forEach((st) => orderedStops.push(st));
-      } else {
-        orderedStops.push(a);
-      }
-    });
-    return orderedStops;
-  }
-
-  function finalizeOrderedStops(orderedStops, reverse = false, roadData = null) {
-    if (reverse) {
-      orderedStops.reverse();
-    }
-
     let packageSeq = 0;
-    orderedStops.forEach((s, idx) => {
-      s.id = idx + 1;
-      s.originalId = s.id;
-      sortItemsByApartment(s.items);
-      s.distinctAddresses = countDistinctAddresses(s.items);
-      s.estimatedMinutes = s.distinctAddresses * 3;
 
-      s.items.forEach((it) => {
-        packageSeq += 1;
-        it.seq = packageSeq;
-        it.stopId = s.id;
+    hubsWorking.forEach((hub, hIdx) => {
+      hub.hubId = hIdx + 1;
+      hub.id = hub.hubId;
+      const pkgCount = hub.stops.reduce((sum, s) => sum + (s.items ? s.items.length : 0), 0);
+      hub.packageCount = pkgCount;
+      hub.addressCount = hub.stops.length;
+      hub.label = hub.roadName
+        ? `Ponto #${hub.hubId} • ${hub.roadName}`
+        : `Ponto #${hub.hubId} (próx. ${hub.streetHint})`;
+      hub.title = hub.label;
+
+      const plan = buildHubWalkPlan(hub, packageSpecs, {});
+      hub.walkPlan = plan;
+      hub.walkUrl = plan.walkUrl;
+
+      // Sort stops in the hub following optimized walking trip order
+      const orderedInHub = [];
+      const seen = new Set();
+      plan.trips.forEach((tr) => {
+        tr.stops.forEach((st) => {
+          if (!seen.has(st)) {
+            seen.add(st);
+            st.walkTripNumber = tr.tripNumber;
+            orderedInHub.push(st);
+          }
+        });
       });
+      hub.stops.forEach((st) => {
+        if (!seen.has(st)) orderedInHub.push(st);
+      });
+      hub.stops = orderedInHub;
+
+      hub.stops.forEach((s) => {
+        const footVal = hub.footDistances && hub.footDistances[stopCoordKey(s)];
+        const distFromHub = typeof footVal === "number"
+          ? Math.round(footVal)
+          : ((hub.lat && hub.lon && s.lat && s.lon)
+            ? Math.round(haversineMeters(hub.lat, hub.lon, s.lat, s.lon))
+            : 0);
+        s.hubId = hub.hubId;
+        s.hubLat = hub.lat;
+        s.hubLon = hub.lon;
+        s.hubLabel = hub.label;
+        s.walkDistanceMeters = distFromHub;
+        s.walkAnchorTitle = hub.label;
+        s.walkClusterSize = hub.stops.length;
+        s.isWalkStop = hub.stops.length > 1 || distFromHub > 5;
+
+        s.id = orderedStops.length + 1;
+        s.originalId = s.id;
+        sortItemsByApartment(s.items);
+        s.distinctAddresses = countDistinctAddresses(s.items);
+        s.estimatedMinutes = s.distinctAddresses * 3;
+        s.items.forEach((it) => {
+          packageSeq += 1;
+          it.seq = packageSeq;
+          it.stopId = s.id;
+        });
+        orderedStops.push(s);
+      });
+
+      hub.stopIds = hub.stops.map((s) => s.id);
     });
 
     const walkSegments = buildWalkSegments(orderedStops);
@@ -563,8 +997,10 @@ const RouteOptimizer = (function () {
     }
 
     return {
+      hubs: hubsWorking,
       stops: orderedStops,
       walkSegments,
+      walkPolylines,
       routeGeometry: roadData && roadData.routeGeometry ? roadData.routeGeometry : null,
       maneuvers: roadData && roadData.maneuvers ? roadData.maneuvers : [],
       usedRoadRouting: !!(roadData && roadData.usedRoadRouting),
@@ -719,10 +1155,343 @@ const RouteOptimizer = (function () {
     }
   }
 
-  async function optimizeClustersWithOsrm(clusters, userLocation = null) {
-    if (!clusters || clusters.length <= 1) return clusters;
-    const valid = clusters.filter((c) => c.anchor && c.anchor.lat && c.anchor.lon);
-    const invalid = clusters.filter((c) => !c.anchor || !c.anchor.lat || !c.anchor.lon);
+  const GEOCODE_CACHE_KEY = "entregas_geocode_cache_v1";
+  const memoryGeocodeCache = new Map();
+
+  function loadGeocodeCache() {
+    if (memoryGeocodeCache.size > 0) return;
+    try {
+      if (typeof localStorage === "undefined") return;
+      const raw = localStorage.getItem(GEOCODE_CACHE_KEY);
+      if (!raw) return;
+      const obj = JSON.parse(raw);
+      Object.entries(obj || {}).forEach(([k, v]) => {
+        if (v && v.lat && v.lon) memoryGeocodeCache.set(k, v);
+      });
+    } catch {}
+  }
+
+  function saveGeocodeCache() {
+    try {
+      if (typeof localStorage === "undefined") return;
+      const entries = Array.from(memoryGeocodeCache.entries()).slice(-500);
+      localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {}
+  }
+
+  function buildAddressQuery(stop) {
+    if (!stop || !stop.street || stop.street === "Desconhecido") return "";
+    const addr = stop.number ? `${stop.street}, ${stop.number}` : stop.street;
+    const bairro = stop.bairro && stop.bairro !== "Não inf." ? stop.bairro : "";
+    const city = stop.city && stop.city !== "Não inf." ? stop.city : "";
+    const zip = stop.zipcode || "";
+    return [addr, bairro, city, zip, "Brasil"].filter(Boolean).join(", ");
+  }
+
+  // Primary address geocoder: ArcGIS World Geocoder -> Photon fallback.
+  // CSV coordinates are kept only as offline fallback when address lookup returns nothing.
+  async function geocodeStopsByAddressAsync(stops) {
+    if (!stops || stops.length === 0 || typeof fetch !== "function") return 0;
+    loadGeocodeCache();
+    let geocodedCount = 0;
+    const toFetch = [];
+
+    stops.forEach((s) => {
+      if (typeof s.csvLat === "undefined") s.csvLat = s.lat;
+      if (typeof s.csvLon === "undefined") s.csvLon = s.lon;
+      const q = buildAddressQuery(s);
+      if (!q) {
+        s.coordSource = "csv-fallback";
+        return;
+      }
+      const key = q.toLowerCase();
+      if (memoryGeocodeCache.has(key)) {
+        const hit = memoryGeocodeCache.get(key);
+        s.lat = hit.lat;
+        s.lon = hit.lon;
+        s.coordSource = hit.source || "address-cache";
+        geocodedCount++;
+      } else {
+        toFetch.push({ stop: s, query: q, key });
+      }
+    });
+
+    const batchSize = 10;
+    for (let i = 0; i < toFetch.length; i += batchSize) {
+      await Promise.all(toFetch.slice(i, i + batchSize).map(async ({ stop, query, key }) => {
+        let resolved = null;
+        const hasCsvCoords = !!(stop.csvLat && stop.csvLon);
+        const arcUrl = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations=1&sourceCountry=BRA&SingleLine=${encodeURIComponent(query)}&outFields=Addr_type`;
+        const arcData = await fetchJsonWithTimeout(arcUrl, 4500);
+        const cand = arcData && arcData.candidates && arcData.candidates[0];
+        if (cand && cand.location && cand.score >= 70) {
+          const addrType = cand.attributes && cand.attributes.Addr_type;
+          const isExactType = !addrType || addrType === "PointAddress" || addrType === "StreetAddress" || addrType === "Subaddress" || addrType === "BuildingName";
+          if (isExactType || !hasCsvCoords) {
+            resolved = { lat: cand.location.y, lon: cand.location.x, source: "address-arcgis" };
+          }
+        }
+        if (!resolved && !hasCsvCoords) {
+          const phUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`;
+          const phData = await fetchJsonWithTimeout(phUrl, 4500);
+          const feat = phData && phData.features && phData.features[0];
+          if (feat && feat.geometry && Array.isArray(feat.geometry.coordinates)) {
+            const [lon, lat] = feat.geometry.coordinates;
+            if (lat && lon) resolved = { lat, lon, source: "address-photon" };
+          }
+        }
+        if (resolved) {
+          stop.lat = resolved.lat;
+          stop.lon = resolved.lon;
+          stop.coordSource = resolved.source;
+          memoryGeocodeCache.set(key, resolved);
+          geocodedCount++;
+        } else {
+          stop.coordSource = "csv-fallback";
+        }
+      }));
+    }
+
+    if (toFetch.length > 0 && geocodedCount > 0) saveGeocodeCache();
+    return geocodedCount;
+  }
+
+  // Real sidewalk/road pedestrian distance matrix (meters & seconds) via OpenStreetMap routed-foot
+  async function fetchFootDistanceMatrixAsync(points) {
+    if (!points || points.length < 2) return null;
+    const valid = points.every((p) => p && p.lat && p.lon);
+    if (!valid) return null;
+
+    if (points.length <= 100) {
+      const coordsStr = points.map((p) => `${p.lon},${p.lat}`).join(";");
+      const data = await fetchJsonWithTimeout(
+        `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?annotations=distance,duration`,
+        8500
+      );
+      if (!data || data.code !== "Ok" || !Array.isArray(data.distances)) return null;
+      return { distances: data.distances, durations: data.durations || null };
+    }
+
+    // For > 100 points, compute overlapping spatial windows of 80 points
+    const n = points.length;
+    const distances = Array.from({ length: n }, (_, i) =>
+      Array.from({ length: n }, (__, j) => (i === j ? 0 : estimateOfflineWalkMeters(points[i], points[j])))
+    );
+    const indexed = points.map((p, idx) => ({ p, idx })).sort((a, b) => (a.p.lat + a.p.lon) - (b.p.lat + b.p.lon));
+    const winSize = 80;
+    const step = 60;
+    for (let start = 0; start < n; start += step) {
+      const slice = indexed.slice(start, start + winSize);
+      if (slice.length < 2) break;
+      const coordsStr = slice.map((item) => `${item.p.lon},${item.p.lat}`).join(";");
+      const data = await fetchJsonWithTimeout(
+        `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordsStr}?annotations=distance`,
+        8500
+      );
+      if (data && data.code === "Ok" && Array.isArray(data.distances)) {
+        for (let r = 0; r < slice.length; r++) {
+          for (let c = 0; c < slice.length; c++) {
+            const val = data.distances[r] && data.distances[r][c];
+            if (typeof val === "number" && Number.isFinite(val)) {
+              distances[slice[r].idx][slice[c].idx] = val;
+            }
+          }
+        }
+      }
+      if (start + winSize >= n) break;
+    }
+    return { distances, durations: null };
+  }
+
+  async function fetchFootDistancePairAsync(lat1, lon1, lat2, lon2) {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const data = await fetchJsonWithTimeout(
+      `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`,
+      5000
+    );
+    const route = data && data.code === "Ok" && data.routes && data.routes[0];
+    if (!route || typeof route.distance !== "number") return null;
+    return {
+      distanceMeters: Math.round(route.distance),
+      durationSeconds: Math.round(route.duration || 0),
+      usedFootRouting: true
+    };
+  }
+
+  async function populateHubFootMetricsAsync(hub) {
+    if (!hub || !hub.stops || hub.stops.length === 0 || !hub.lat || !hub.lon) return;
+    const validStops = hub.stops.filter((s) => s.lat && s.lon);
+    if (validStops.length === 0) return;
+
+    const mat = await fetchFootDistanceMatrixAsync([hub, ...validStops]);
+    if (!mat || !mat.distances) return;
+
+    hub.footDistances = hub.footDistances || {};
+    hub.footPairDistances = hub.footPairDistances || {};
+    hub.directFootDistances = hub.directFootDistances || {};
+    hub.usedFootDistance = true;
+
+    for (let i = 0; i < validStops.length; i++) {
+      const sKey = stopCoordKey(validStops[i]);
+      const dHub = mat.distances[0] && mat.distances[0][i + 1];
+      if (typeof dHub === "number" && Number.isFinite(dHub)) {
+        hub.directFootDistances[sKey] = Math.round(dHub);
+      }
+      for (let j = 0; j < validStops.length; j++) {
+        if (i === j) continue;
+        const dPair = mat.distances[i + 1] && mat.distances[i + 1][j + 1];
+        if (typeof dPair === "number" && Number.isFinite(dPair)) {
+          hub.footPairDistances[`${sKey}=>${stopCoordKey(validStops[j])}`] = Math.round(dPair);
+        }
+      }
+    }
+
+    // Compute cumulative sequential walking path (percurso) along the stops in this hub
+    let cumPercurso = 0;
+    for (let i = 0; i < validStops.length; i++) {
+      const curKey = stopCoordKey(validStops[i]);
+      if (i === 0) {
+        const d0 = hub.directFootDistances[curKey];
+        cumPercurso = typeof d0 === "number" ? d0 : Math.round(estimateOfflineWalkMeters(hub, validStops[0]));
+      } else {
+        const prevKey = stopCoordKey(validStops[i - 1]);
+        const dStep = hub.footPairDistances[`${prevKey}=>${curKey}`];
+        cumPercurso += typeof dStep === "number"
+          ? dStep
+          : Math.round(estimateOfflineWalkMeters(validStops[i - 1], validStops[i]));
+      }
+      hub.footDistances[curKey] = Math.round(cumPercurso);
+    }
+  }
+
+  // Max-coverage Parking Hubs validated strictly by REAL sidewalk route distance (percurso <= walkRadiusMeters)
+  async function buildParkingHubsAsync(stops, walkRadiusMeters = 0) {
+    if (!stops || stops.length === 0 || walkRadiusMeters <= 0 || typeof fetch !== "function") {
+      const initial = buildParkingHubs(stops, walkRadiusMeters);
+      await snapHubsToRoadAsync(initial, walkRadiusMeters);
+      return initial;
+    }
+
+    const withCoords = stops.filter((s) => s.lat && s.lon);
+    const allFootMat = withCoords.length >= 2 && withCoords.length <= 35
+      ? await fetchFootDistanceMatrixAsync(withCoords)
+      : null;
+
+    const initialHubs = buildParkingHubs(stops, walkRadiusMeters, allFootMat ? allFootMat.distances : null);
+    await snapHubsToRoadAsync(initialHubs, walkRadiusMeters);
+
+    // Verify cumulative sidewalk walking path (percurso) from each snapped Parking Hub through its stops
+    const multiHubs = initialHubs.filter((h) => h.stops && h.stops.length > 1);
+    for (let i = 0; i < multiHubs.length; i += 4) {
+      await Promise.all(multiHubs.slice(i, i + 4).map((hub) => populateHubFootMetricsAsync(hub)));
+    }
+
+    const keptHubs = [];
+    const evictedStops = [];
+
+    initialHubs.forEach((hub) => {
+      if (!hub.stops || hub.stops.length <= 1) {
+        if (hub.stops && hub.stops[0]) {
+          hub.footDistances = { [stopCoordKey(hub.stops[0])]: 0 };
+        }
+        keptHubs.push(hub);
+        return;
+      }
+
+      const staying = [];
+      let cumPercurso = 0;
+
+      hub.stops.forEach((st) => {
+        const sKey = stopCoordKey(st);
+        const directDist = hub.directFootDistances && typeof hub.directFootDistances[sKey] === "number"
+          ? hub.directFootDistances[sKey]
+          : Math.round(estimateOfflineWalkMeters(hub, st));
+
+        let stepDist;
+        if (staying.length === 0) {
+          stepDist = directDist;
+        } else {
+          const prevStop = staying[staying.length - 1];
+          const pairKey = `${stopCoordKey(prevStop)}=>${sKey}`;
+          stepDist = (hub.footPairDistances && typeof hub.footPairDistances[pairKey] === "number")
+            ? hub.footPairDistances[pairKey]
+            : Math.round(estimateOfflineWalkMeters(prevStop, st));
+        }
+
+        if (directDist <= walkRadiusMeters && cumPercurso + stepDist <= walkRadiusMeters) {
+          cumPercurso += stepDist;
+          hub.footDistances[sKey] = Math.round(cumPercurso);
+          staying.push(st);
+        } else {
+          evictedStops.push(st);
+        }
+      });
+
+      if (staying.length > 0) {
+        if (staying.length === 1) {
+          hub.lat = staying[0].lat;
+          hub.lon = staying[0].lon;
+          hub.footDistances[stopCoordKey(staying[0])] = 0;
+        }
+        hub.stops = staying;
+        keptHubs.push(hub);
+      }
+    });
+
+    // Any stop evicted because its sidewalk percurso exceeded walkRadiusMeters gets its own validated hub(s)
+    if (evictedStops.length > 0) {
+      evictedStops.forEach((st) => {
+        const sKey = stopCoordKey(st);
+        keptHubs.push({
+          isParkingHub: true,
+          lat: st.lat,
+          lon: st.lon,
+          street: st.street,
+          bairro: st.bairro,
+          city: st.city,
+          streetHint: st.title,
+          roadName: "",
+          footDistances: { [sKey]: 0 },
+          footPairDistances: {},
+          usedFootDistance: true,
+          stops: [st]
+        });
+      });
+    }
+
+    return keptHubs;
+  }
+
+  async function snapHubsToRoadAsync(hubs, walkRadiusMeters = 0) {
+    if (!hubs || hubs.length === 0 || walkRadiusMeters <= 0) return hubs;
+    const batchSize = 4;
+    for (let i = 0; i < hubs.length; i += batchSize) {
+      await Promise.all(hubs.slice(i, i + batchSize).map(async (hub) => {
+        if (!hub.lat || !hub.lon) return;
+        const data = await fetchJsonWithTimeout(
+          `https://router.project-osrm.org/nearest/v1/driving/${hub.lon},${hub.lat}`,
+          4500
+        );
+        const wp = data && data.code === "Ok" && data.waypoints && data.waypoints[0];
+        if (!wp || !Array.isArray(wp.location)) return;
+        const [sLon, sLat] = wp.location;
+        if (wp.name) hub.roadName = wp.name;
+        const validSnap = hub.stops.every(
+          (st) => !st.lat || !st.lon || haversineMeters(sLat, sLon, st.lat, st.lon) <= walkRadiusMeters + 15
+        );
+        if (validSnap) {
+          hub.lat = sLat;
+          hub.lon = sLon;
+        }
+      }));
+    }
+    return hubs;
+  }
+
+  async function optimizeHubsWithOsrm(hubs, userLocation = null) {
+    if (!hubs || hubs.length <= 1) return hubs;
+    const valid = hubs.filter((h) => h.lat && h.lon);
+    const invalid = hubs.filter((h) => !h.lat || !h.lon);
     if (valid.length <= 1 || valid.length > 85) return null;
 
     const hasOrigin = !!(userLocation && (userLocation.latitude || userLocation.lat) && (userLocation.longitude || userLocation.lon));
@@ -730,8 +1499,8 @@ const RouteOptimizer = (function () {
     const originLon = hasOrigin ? (userLocation.longitude || userLocation.lon) : null;
 
     const coordPoints = hasOrigin
-      ? [{ lat: originLat, lon: originLon }, ...valid.map((c) => c.anchor)]
-      : valid.map((c) => c.anchor);
+      ? [{ lat: originLat, lon: originLon }, ...valid]
+      : valid;
 
     const coordsStr = coordPoints.map((p) => `${p.lon},${p.lat}`).join(";");
     const data = await fetchJsonWithTimeout(
@@ -748,10 +1517,11 @@ const RouteOptimizer = (function () {
     return orderedValid.concat(invalid);
   }
 
-  async function fetchRoadDataForStops(stops) {
-    if (!stops || stops.length < 2) return null;
-    const drivingStops = stops.filter((s) => !s.isWalkStop && s.lat && s.lon);
-    if (drivingStops.length < 2) return null;
+  // Fetch road driving geometry connecting Parking Hubs strictly along roadways
+  async function fetchRoadDataForHubs(hubs) {
+    if (!hubs || hubs.length < 2) return null;
+    const drivingPoints = hubs.filter((h) => h.lat && h.lon);
+    if (drivingPoints.length < 2) return null;
 
     const chunkSize = 45;
     const combinedCoords = [];
@@ -759,10 +1529,10 @@ const RouteOptimizer = (function () {
     let totalDist = 0;
     let totalDur = 0;
 
-    for (let i = 0; i < drivingStops.length; i += (chunkSize - 1)) {
-      const slice = drivingStops.slice(i, i + chunkSize);
+    for (let i = 0; i < drivingPoints.length; i += (chunkSize - 1)) {
+      const slice = drivingPoints.slice(i, i + chunkSize);
       if (slice.length < 2) break;
-      const coordsStr = slice.map((s) => `${s.lon},${s.lat}`).join(";");
+      const coordsStr = slice.map((p) => `${p.lon},${p.lat}`).join(";");
       const data = await fetchJsonWithTimeout(
         `https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson&steps=true`
       );
@@ -781,7 +1551,7 @@ const RouteOptimizer = (function () {
       });
 
       (route.legs || []).forEach((leg, legIdx) => {
-        const destStop = slice[legIdx + 1];
+        const destHub = slice[legIdx + 1];
         (leg.steps || []).forEach((step) => {
           if (!step.maneuver || !step.maneuver.location) return;
           const [mLon, mLat] = step.maneuver.location;
@@ -790,12 +1560,13 @@ const RouteOptimizer = (function () {
             lon: mLon,
             instruction: formatOsrmManeuver(step),
             distanceMeters: Math.round(step.distance || 0),
-            toStopId: destStop ? destStop.id : null
+            toHubId: destHub ? destHub.hubId : null,
+            toStopId: destHub && destHub.stopIds ? destHub.stopIds[0] : (destHub ? destHub.id : null)
           });
         });
       });
 
-      if (i + chunkSize >= drivingStops.length) break;
+      if (i + chunkSize >= drivingPoints.length) break;
     }
 
     if (combinedCoords.length < 2) return null;
@@ -806,6 +1577,66 @@ const RouteOptimizer = (function () {
       maneuvers,
       usedRoadRouting: true
     };
+  }
+
+  // Fetch real sidewalk/pedestrian polylines for every walking trip inside each Parking Hub
+  async function fetchWalkGeometriesForHubsAsync(hubs) {
+    if (!hubs || hubs.length === 0) return [];
+    const walkPolylines = [];
+    const tasks = [];
+
+    hubs.forEach((hub) => {
+      if (!hub.walkPlan || !hub.walkPlan.trips || !hub.lat || !hub.lon) return;
+      hub.walkPlan.trips.forEach((trip) => {
+        const waypoints = [{ lat: hub.lat, lon: hub.lon }];
+        trip.stops.forEach((st) => {
+          if (!st.lat || !st.lon) return;
+          const last = waypoints[waypoints.length - 1];
+          if (haversineMeters(last.lat, last.lon, st.lat, st.lon) > 2) {
+            waypoints.push({ lat: st.lat, lon: st.lon });
+          }
+        });
+        if (trip.returnToCarAfter) {
+          waypoints.push({ lat: hub.lat, lon: hub.lon });
+        }
+        if (waypoints.length < 2) return;
+
+        tasks.push(async () => {
+          const coordsStr = waypoints.map((p) => `${p.lon},${p.lat}`).join(";");
+          const data = await fetchJsonWithTimeout(
+            `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`,
+            5500
+          );
+          if (data && data.code === "Ok" && data.routes && data.routes[0] && data.routes[0].geometry) {
+            trip.geometry = data.routes[0].geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+            trip.usedFootRouting = true;
+            if (data.routes[0].distance) {
+              trip.walkMetersEstimate = Math.round(data.routes[0].distance);
+            }
+          } else {
+            trip.geometry = waypoints.map((p) => [p.lat, p.lon]);
+            trip.usedFootRouting = false;
+          }
+          walkPolylines.push({
+            hubId: hub.hubId,
+            tripNumber: trip.tripNumber,
+            coords: trip.geometry,
+            usedFootRouting: trip.usedFootRouting
+          });
+        });
+      });
+    });
+
+    const concurrency = 4;
+    for (let i = 0; i < tasks.length; i += concurrency) {
+      await Promise.all(tasks.slice(i, i + concurrency).map((fn) => fn()));
+    }
+
+    return walkPolylines;
+  }
+
+  function fetchRoadDataForStops(stops) {
+    return fetchRoadDataForHubs((stops || []).filter((s) => !s.isWalkStop));
   }
 
   function groupRowsIntoPhysicalStops(rows) {
@@ -836,69 +1667,81 @@ const RouteOptimizer = (function () {
         recipient: r.recipient || "",
         notes: r.notes || "",
         sortCode: r.sortCode || "",
+        size: r.size || "m",
+        weight: r.weight || "light",
         apartmentInfo
       });
     });
     return Array.from(stopMap.values());
   }
 
-  // Synchronous route builder (offline-ready, supports walk-radius clustering)
+  // Synchronous route builder based on Parking Hubs (offline-ready)
   function buildOptimizedRoute(rows, options = {}) {
     if (!rows || rows.length === 0) {
-      return { stops: [], totalPackages: 0, streets: [], walkSegments: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false };
+      return { hubs: [], stops: [], totalPackages: 0, streets: [], walkSegments: [], walkPolylines: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false };
     }
 
     const physicalStops = groupRowsIntoPhysicalStops(rows);
-    const clusters = buildWalkClusters(physicalStops, options.maxWalkDistanceMeters || 0);
-    const anchorStartPos = options.userLocation
+    const hubs = buildParkingHubs(physicalStops, options.maxWalkDistanceMeters || 0);
+    const hubStartPos = options.userLocation
       ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
       : null;
-    const orderedAnchors = orderStopsByStreetChain(clusters.map((c) => c.anchor), anchorStartPos);
-    const orderedStops = flattenClustersWithAnchorChain(clusters, orderedAnchors);
+    const orderedHubs = orderStopsByStreetChain(hubs, hubStartPos);
 
-    return finalizeOrderedStops(orderedStops, !!options.reverse, null);
+    return finalizeHubRoute(orderedHubs, options.packageSpecs || {}, !!options.reverse, null, []);
   }
 
-  // Asynchronous road-network optimizer: follows one-way street flow (OSRM) + walk-radius clustering
+  // Asynchronous road-network optimizer:
+  // 1) Geocodes delivery stops primarily from street addresses (CSV lat/lon only as offline fallback)
+  // 2) Computes max-coverage Parking Hubs verified by real sidewalk distances (routed-foot) & snaps to street
+  // 3) Routes strictly between Parking Hubs following one-way street flow (OSRM)
+  // 4) Plans capacitated walking trips + real sidewalk paths (routed-foot) from each Parking Hub
   async function buildOptimizedRouteAsync(rows, options = {}) {
     if (!rows || rows.length === 0) {
-      return { stops: [], totalPackages: 0, streets: [], walkSegments: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false };
+      return { hubs: [], stops: [], totalPackages: 0, streets: [], walkSegments: [], walkPolylines: [], routeGeometry: null, maneuvers: [], usedRoadRouting: false, geocodedCount: 0, usedFootDistance: false };
     }
 
+    const walkRadius = options.maxWalkDistanceMeters || 0;
     const physicalStops = groupRowsIntoPhysicalStops(rows);
-    const clusters = buildWalkClusters(physicalStops, options.maxWalkDistanceMeters || 0);
-    let orderedClusters = await optimizeClustersWithOsrm(clusters, options.userLocation);
+    const geocodedCount = await geocodeStopsByAddressAsync(physicalStops);
+    const hubs = await buildParkingHubsAsync(physicalStops, walkRadius);
+    const usedFootDistance = hubs.some((h) => !!h.usedFootDistance);
 
-    let orderedStops;
-    if (orderedClusters) {
-      orderedStops = [];
-      orderedClusters.forEach((c) => c.stops.forEach((st) => orderedStops.push(st)));
-    } else {
-      const anchorStartPos = options.userLocation
+    let orderedHubs = await optimizeHubsWithOsrm(hubs, options.userLocation);
+    if (!orderedHubs) {
+      const hubStartPos = options.userLocation
         ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
         : null;
-      const orderedAnchors = orderStopsByStreetChain(clusters.map((c) => c.anchor), anchorStartPos);
-      orderedStops = flattenClustersWithAnchorChain(clusters, orderedAnchors);
+      orderedHubs = orderStopsByStreetChain(hubs, hubStartPos);
     }
 
-    const finalized = finalizeOrderedStops(orderedStops, !!options.reverse, null);
-    const roadData = await fetchRoadDataForStops(finalized.stops);
-    if (!roadData) return finalized;
+    const finalized = finalizeHubRoute(orderedHubs, options.packageSpecs || {}, !!options.reverse, null, []);
+    const [roadData, walkPolylines] = await Promise.all([
+      fetchRoadDataForHubs(finalized.hubs),
+      fetchWalkGeometriesForHubsAsync(finalized.hubs)
+    ]);
 
-    const metrics = {
-      ...calculateRouteMetrics(finalized.stops),
-      totalDistanceKm: parseFloat((roadData.roadDistanceMeters / 1000).toFixed(1)),
-      transitMinutes: Math.max(1, Math.round(roadData.roadDurationSeconds / 60))
-    };
-    metrics.estimatedMinutes = metrics.serviceMinutes + metrics.transitMinutes;
-    metrics.estimatedDurationStr = formatDuration(metrics.estimatedMinutes);
+    const metrics = roadData
+      ? {
+          ...calculateRouteMetrics(finalized.stops),
+          totalDistanceKm: parseFloat((roadData.roadDistanceMeters / 1000).toFixed(1)),
+          transitMinutes: Math.max(1, Math.round(roadData.roadDurationSeconds / 60))
+        }
+      : {};
+    if (roadData) {
+      metrics.estimatedMinutes = metrics.serviceMinutes + metrics.transitMinutes;
+      metrics.estimatedDurationStr = formatDuration(metrics.estimatedMinutes);
+    }
 
     return {
       ...finalized,
       ...metrics,
-      routeGeometry: roadData.routeGeometry,
-      maneuvers: roadData.maneuvers,
-      usedRoadRouting: true
+      geocodedCount,
+      usedFootDistance: usedFootDistance || !!(walkPolylines && walkPolylines.some((w) => w.usedFootRouting)),
+      walkPolylines: walkPolylines || [],
+      routeGeometry: roadData ? roadData.routeGeometry : null,
+      maneuvers: roadData ? roadData.maneuvers : [],
+      usedRoadRouting: !!(roadData && roadData.usedRoadRouting)
     };
   }
 
@@ -959,6 +1802,69 @@ const RouteOptimizer = (function () {
   }
 
   /**
+   * Real-time walk shortcut validator using actual pedestrian sidewalk routing (routed-foot).
+   * Uses straight-line distance strictly as a mathematical lower-bound pre-filter.
+   */
+  async function findNearbyWalkCandidateAsync(stops, activeStopIdx, originCoords, maxWalkMeters, results = {}, dismissedKeys = {}) {
+    if (!stops || stops.length === 0 || !maxWalkMeters || maxWalkMeters <= 0) return null;
+    const currentStop = stops[activeStopIdx];
+    if (!currentStop) return null;
+
+    const origin = originCoords && originCoords.lat && originCoords.lon
+      ? originCoords
+      : (currentStop.lat && currentStop.lon ? { lat: currentStop.lat, lon: currentStop.lon } : null);
+    if (!origin) return null;
+
+    const hasPendingItem = (stop) =>
+      stop && stop.items && stop.items.some((it) => !results[it.tn] || results[it.tn].status === "pending");
+
+    let nextPendingIdx = -1;
+    for (let k = activeStopIdx + 1; k < stops.length; k++) {
+      if (hasPendingItem(stops[k])) {
+        nextPendingIdx = k;
+        break;
+      }
+    }
+
+    const currentStreetKey = normalizeStreetKey(currentStop.street);
+    const shortlist = [];
+
+    for (let i = 0; i < stops.length; i++) {
+      if (i === activeStopIdx || i === nextPendingIdx) continue;
+      const cand = stops[i];
+      if (!cand || !cand.lat || !cand.lon) continue;
+      if (!hasPendingItem(cand)) continue;
+      if (currentStreetKey && normalizeStreetKey(cand.street) === currentStreetKey) continue;
+
+      const pairKey = `${currentStop.originalId || currentStop.id}->${cand.originalId || cand.id}`;
+      if (dismissedKeys && dismissedKeys[pairKey]) continue;
+
+      const lowerBound = haversineMeters(origin.lat, origin.lon, cand.lat, cand.lon);
+      if (lowerBound <= maxWalkMeters + 15) {
+        shortlist.push({ stop: cand, stopIndex: i, lowerBound, pairKey });
+      }
+    }
+
+    shortlist.sort((a, b) => a.lowerBound - b.lowerBound);
+    let best = null;
+    for (const item of shortlist.slice(0, 6)) {
+      const foot = await fetchFootDistancePairAsync(origin.lat, origin.lon, item.stop.lat, item.stop.lon);
+      const dist = foot ? foot.distanceMeters : Math.round(item.lowerBound);
+      const usedFoot = !!foot;
+      if (dist <= maxWalkMeters && (!best || dist < best.distanceMeters)) {
+        best = {
+          stop: item.stop,
+          stopIndex: item.stopIndex,
+          distanceMeters: dist,
+          usedFootRouting: usedFoot,
+          pairKey: item.pairKey
+        };
+      }
+    }
+    return best;
+  }
+
+  /**
    * Remove an early-walked stop from the queue and re-optimize remaining upcoming stops.
    */
   function recalculateRouteAfterWalk(stops, activeStopIdx, walkedStopIdx, originPos = null) {
@@ -1006,11 +1912,23 @@ const RouteOptimizer = (function () {
     };
   }
 
-  // Named stop label for Google Maps & Android Auto
-  function formatStopLabel(stop) {
-    const address = stop.title || (stop.number ? `${stop.street}, ${stop.number}` : stop.street);
-    const bairro = stop.bairro && stop.bairro !== "Não inf." ? stop.bairro : "";
-    let city = stop.city && stop.city !== "Não inf." ? stop.city : "";
+  // Named address label for stops (primary source) & Parking Hub routing target
+  function formatStopLabel(point) {
+    if (!point) return "";
+    if (point.isParkingHub) {
+      if (point.stops && point.stops.length === 1 && point.stops[0].street && point.stops[0].street !== "Desconhecido") {
+        return formatStopLabel(point.stops[0]);
+      }
+      if (point.lat && point.lon) {
+        return `${point.lat},${point.lon}`;
+      }
+    }
+    if (!point.title && point.lat && point.lon) {
+      return `${point.lat},${point.lon}`;
+    }
+    const address = point.title || (point.number ? `${point.street}, ${point.number}` : point.street);
+    const bairro = point.bairro && point.bairro !== "Não inf." ? point.bairro : "";
+    let city = point.city && point.city !== "Não inf." ? point.city : "";
     if (city && !city.includes("-") && !city.includes("/")) {
       city = `${city} - PR`;
     }
@@ -1018,27 +1936,30 @@ const RouteOptimizer = (function () {
     return parts.join(", ");
   }
 
-  // Google Maps multi-stop URL builder with named destinations (Android Auto ready)
-  // Generates https://www.google.com/maps/dir/Stop1/Stop2/Stop3/...
-  function buildGoogleMapsRouteUrl(stops, startIdx = 0, count = null) {
-    if (!stops || stops.length === 0) return "#";
-    const slice = count ? stops.slice(startIdx, startIdx + count) : stops.slice(startIdx);
+  // Google Maps multi-stop URL builder (routes Parking Hubs when available)
+  function buildGoogleMapsRouteUrl(points, startIdx = 0, count = null) {
+    if (!points || points.length === 0) return "#";
+    const slice = count ? points.slice(startIdx, startIdx + count) : points.slice(startIdx);
     if (slice.length === 0) return "#";
 
-    const segments = slice.map((s) => encodeURIComponent(formatStopLabel(s)));
+    const segments = slice.map((p) => encodeURIComponent(formatStopLabel(p)));
     return "https://www.google.com/maps/dir/" + segments.join("/") + "/";
   }
 
-  function buildSingleStopGoogleMapsUrl(stop) {
-    const query = encodeURIComponent(formatStopLabel(stop));
-    return `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}&travelmode=driving&query=${query}`;
+  function buildSingleStopGoogleMapsUrl(point) {
+    if (!point) return "#";
+    if (point.isParkingHub && point.stops && point.stops.length > 1) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lon}&travelmode=driving`;
+    }
+    const query = encodeURIComponent(formatStopLabel(point));
+    return `https://www.google.com/maps/dir/?api=1&destination=${query}&travelmode=driving`;
   }
 
-  function buildWazeUrl(stop) {
-    if (stop.lat && stop.lon && stop.lat !== 0 && stop.lon !== 0) {
-      return `https://waze.com/ul?ll=${stop.lat},${stop.lon}&navigate=yes`;
+  function buildWazeUrl(point) {
+    if (point.lat && point.lon && point.lat !== 0 && point.lon !== 0) {
+      return `https://waze.com/ul?ll=${point.lat},${point.lon}&navigate=yes`;
     }
-    const query = encodeURIComponent(formatStopLabel(stop));
+    const query = encodeURIComponent(formatStopLabel(point));
     return `https://waze.com/ul?q=${query}&navigate=yes`;
   }
 
@@ -1046,12 +1967,25 @@ const RouteOptimizer = (function () {
     parseCSV,
     buildOptimizedRoute,
     buildOptimizedRouteAsync,
+    fetchRoadDataForHubs,
     fetchRoadDataForStops,
-    buildWalkClusters,
+    fetchWalkGeometriesForHubsAsync,
+    geocodeStopsByAddressAsync,
+    fetchFootDistanceMatrixAsync,
+    fetchFootDistancePairAsync,
+    buildParkingHubs,
+    buildParkingHubsAsync,
+    buildHubWalkPlan,
+    buildWalkingTripUrl,
     buildWalkSegments,
+    normalizePackageSize,
+    normalizePackageWeight,
+    PACKAGE_SIZE_LABELS,
+    PACKAGE_WEIGHT_LABELS,
     solveAsymmetricOpenTsp,
     orderStopsAlongStreetGeo,
     findNearbyWalkCandidate,
+    findNearbyWalkCandidateAsync,
     recalculateRouteAfterWalk,
     normalizeStreetKey,
     formatStopLabel,
