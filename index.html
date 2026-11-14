@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR" data-theme="dark">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -10,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="Organiza Entregas" />
   <meta name="application-name" content="Organiza Entregas" />
   <meta name="description" content="Organizador e roteirizador de entregas com suporte offline" />
-  
+
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
@@ -19,14 +20,14 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" sizes="512x512" href="icons/icon-512.png" />
   <title>Organiza Entregas</title>
-  
+
   <script>
     try {
       const savedTheme = localStorage.getItem("spx_theme_preference") || "dark";
       document.documentElement.setAttribute("data-theme", savedTheme);
-    } catch (_) {}
+    } catch (_) { }
   </script>
-  
+
   <!-- Leaflet Map CSS & JS (Local Offline-First) -->
   <link rel="stylesheet" href="vendor/leaflet.css" />
   <script src="vendor/leaflet.js"></script>
@@ -43,30 +44,46 @@
   <script src="vendor/firebase-firestore-compat.js"></script>
 
   <!-- App Stylesheet -->
-  <link rel="stylesheet" href="css/style.css?v=1.1.8" />
+  <link rel="stylesheet" href="css/style.css?v=1.1.9" />
 </head>
+
 <body>
   <!-- HEADER COMPACTO MOBILE-FIRST -->
   <header class="app-header">
     <div class="brand-wrap">
-      <img src="icons/icon.svg" width="28" height="28" alt="Ícone Organiza Entregas" style="border-radius:6px; flex-shrink:0;" />
+      <img src="icons/icon.svg" width="28" height="28" alt="Ícone Organiza Entregas"
+        style="border-radius:6px; flex-shrink:0;" />
       <span class="brand-title">Organiza Entregas</span>
     </div>
 
     <div class="header-actions">
       <!-- Botão de Instalar PWA no Celular -->
-      <button type="button" class="btn btn-outline header-install-btn" id="btnInstallPwa" onclick="app.installPwa()" aria-label="Instalar App no Celular">
-        <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+      <button type="button" class="btn btn-outline header-install-btn" id="btnInstallPwa" onclick="app.installPwa()"
+        aria-label="Instalar App no Celular">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+          <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+          <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+        </svg>
         Instalar
       </button>
 
       <!-- Badge de progresso (exibido apenas quando há rota carregada) -->
       <span class="badge badge-primary hidden" id="headerProgressBadge">0 pacotes</span>
 
+      <!-- Botão Encerrar Rota no Header (exibido quando há rota ativa) -->
+      <button type="button" class="btn btn-outline btn-xs header-finish-btn hidden" id="btnHeaderFinishRoute"
+        onclick="app.openFinishRouteModal()" title="Encerrar Rota">
+        Encerrar Rota
+      </button>
+
       <!-- Botão do Menu da Conta (Dropdown) -->
       <button type="button" class="account-btn" id="btnAccountMenu" aria-label="Menu da Conta" aria-haspopup="true">
         <span id="userAvatarText" class="user-avatar">?</span>
-        <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+        <svg class="icon icon-caret" width="14" height="14" viewBox="0 0 24 24">
+          <polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" />
+        </svg>
       </button>
 
       <!-- Menu Dropdown Flutuante -->
@@ -76,30 +93,46 @@
           <div class="dropdown-user-email" id="menuUserEmail">Não conectado</div>
         </div>
 
-        <button type="button" class="dropdown-item hidden" id="menuItemUpdateApp" onclick="app.applyPwaUpdate()" style="color:var(--success-text); font-weight:700;">
+        <button type="button" class="dropdown-item hidden" id="menuItemUpdateApp" onclick="app.applyPwaUpdate()"
+          style="color:var(--success-text); font-weight:700;">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+                stroke="currentColor" stroke-width="2" />
+            </svg>
             <span>Atualizar App (Nova Versão)</span>
           </div>
         </button>
 
         <button type="button" class="dropdown-item" id="menuItemInstallApp">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+            </svg>
             <span>Instalar Aplicativo</span>
           </div>
         </button>
 
         <button type="button" class="dropdown-item" id="menuItemHistory">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" />
+            </svg>
             <span>Histórico de Rotas</span>
           </div>
         </button>
 
         <button type="button" class="dropdown-item" id="menuItemNavApp" onclick="app.toggleNavApp()">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             <span id="menuNavAppLabel">Navegação: Google Maps</span>
           </div>
         </button>
@@ -107,7 +140,10 @@
         <button type="button" class="dropdown-item" id="menuItemTheme">
           <div class="dropdown-item-content">
             <span id="menuThemeIcon">
-              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+              </svg>
             </span>
             <span id="menuThemeLabel">Tema Claro</span>
           </div>
@@ -118,7 +154,11 @@
         <!-- Botão Entrar dentro do Menu -->
         <button type="button" class="dropdown-item" id="menuItemLogin" style="color:var(--primary); font-weight:700;">
           <div class="dropdown-item-content">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="10 17 15 12 10 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="10 17 15 12 10 7" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="15" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2" />
+            </svg>
             <span>Entrar na Conta</span>
           </div>
         </button>
@@ -126,7 +166,11 @@
         <div id="menuAuthActionSection" class="hidden">
           <button type="button" class="dropdown-item dropdown-item-danger" id="menuItemLogout">
             <div class="dropdown-item-content">
-              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2" />
+                <polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2" />
+                <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2" />
+              </svg>
               <span>Sair da Conta</span>
             </div>
           </button>
@@ -136,11 +180,21 @@
   </header>
 
   <!-- TOP PROGRESS BAR -->
-  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="progress-wrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
 
   <!-- OFFLINE STATUS BANNER -->
   <div id="offlineBanner" class="offline-banner hidden">
-    <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>
+    <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+      <line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2" />
+      <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="M10.71 5.05A16 16 0 0 1 22.56 9" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" fill="none" stroke="currentColor" stroke-width="2" />
+      <circle cx="12" cy="20" r="1" fill="currentColor" />
+    </svg>
     <span>Modo Offline: Operando com dados locais salvos.</span>
   </div>
 
@@ -148,16 +202,23 @@
   <div id="pwaUpdateBanner" class="pwa-update-banner hidden" role="region" aria-label="Atualização do aplicativo">
     <div class="pwa-update-info">
       <div class="pwa-update-title">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+          <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+          <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+            stroke="currentColor" stroke-width="2" />
+        </svg>
         <span>Nova versão disponível!</span>
       </div>
       <div class="pwa-update-sub">Atualize agora para obter as melhorias mais recentes.</div>
     </div>
     <div class="pwa-update-actions">
-      <button type="button" class="btn btn-primary btn-sm" id="btnApplyPwaUpdate" onclick="app.applyPwaUpdate()" style="width:auto; padding:6px 12px; white-space:nowrap;">
+      <button type="button" class="btn btn-primary btn-sm" id="btnApplyPwaUpdate" onclick="app.applyPwaUpdate()"
+        style="width:auto; padding:6px 12px; white-space:nowrap;">
         Atualizar agora
       </button>
-      <button type="button" class="btn btn-outline btn-sm" id="btnDismissPwaUpdate" onclick="app.dismissPwaUpdate()" style="width:auto; padding:6px 10px;">
+      <button type="button" class="btn btn-outline btn-sm" id="btnDismissPwaUpdate" onclick="app.dismissPwaUpdate()"
+        style="width:auto; padding:6px 10px;">
         Depois
       </button>
     </div>
@@ -170,7 +231,9 @@
          ========================================== -->
     <section id="screenHome" class="card">
       <div class="kicker">
-        <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+          <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
         Roteirizador Inteligente Sem Zigue-Zague
       </div>
 
@@ -178,32 +241,40 @@
       <div id="pwaHomeInstallBanner" class="pwa-install-banner">
         <div class="pwa-install-banner-text">
           <div class="pwa-install-banner-title">
-            <svg class="icon" width="20" height="20" viewBox="0 0 24 24" style="color:var(--primary); flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="20" height="20" viewBox="0 0 24 24" style="color:var(--primary); flex-shrink:0;">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+            </svg>
             <span>Instalar App no Celular</span>
           </div>
           <div class="meta-text" style="font-size:0.84rem; text-align:center; max-width:380px; line-height:1.4;">
             Use 100% offline em qualquer lugar, mesmo sem sinal de internet na rua!
           </div>
         </div>
-        <button type="button" class="btn btn-primary" onclick="app.installPwa()" style="width:auto; padding:8px 24px; font-weight:700; border-radius:var(--radius-full); box-shadow:var(--shadow-sm);">
+        <button type="button" class="btn btn-primary" onclick="app.installPwa()"
+          style="width:auto; padding:8px 24px; font-weight:700; border-radius:var(--radius-full); box-shadow:var(--shadow-sm);">
           Instalar Agora
         </button>
       </div>
 
       <h2 class="title-lg">Gerar Rota por Planilha SPX</h2>
       <p class="meta-text" style="margin-bottom:14px;">
-        Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da numeração.
+        Importe a planilha de entregas para agrupar pacotes por endereço e ordenar rua por rua no sentido correto da
+        numeração.
       </p>
 
       <!-- Dropzone para XLSX ou CSV (Label nativo com suporte 100% confiável a toque mobile) -->
-      <label class="upload-dropzone" id="uploadDropzone" for="spreadsheetFileInput" style="cursor:pointer; display:flex;">
-        <input
-          type="file"
-          id="spreadsheetFileInput"
+      <label class="upload-dropzone" id="uploadDropzone" for="spreadsheetFileInput"
+        style="cursor:pointer; display:flex;">
+        <input type="file" id="spreadsheetFileInput"
           accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain"
-          style="position:absolute; opacity:0; width:1px; height:1px; pointer-events:none;"
-        />
-        <svg class="icon" width="32" height="32" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="17 8 12 3 7 8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>
+          style="position:absolute; opacity:0; width:1px; height:1px; pointer-events:none;" />
+        <svg class="icon" width="32" height="32" viewBox="0 0 24 24" style="color:var(--primary);">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+          <polyline points="17 8 12 3 7 8" fill="none" stroke="currentColor" stroke-width="2" />
+          <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" />
+        </svg>
         <div>
           <div style="font-weight:800; font-size:0.95rem;">Selecionar Planilha (.XLSX ou .CSV)</div>
           <div class="meta-text" style="font-size:0.78rem;">Toque para escolher ou arraste o arquivo aqui</div>
@@ -213,7 +284,8 @@
       <details style="font-size:0.82rem; color:var(--text-muted); cursor:pointer; margin-top:10px;">
         <summary style="font-weight:700; padding:4px 0;">Ou colar dados em formato texto / CSV</summary>
         <div style="margin-top:8px; display:flex; flex-direction:column; gap:8px;">
-          <textarea id="csvPasteArea" class="input-field" rows="4" placeholder="Cole aqui o texto exportado da planilha SPX..."></textarea>
+          <textarea id="csvPasteArea" class="input-field" rows="4"
+            placeholder="Cole aqui o texto exportado da planilha SPX..."></textarea>
           <button class="btn btn-primary btn-sm" id="btnParsePastedCSV">Processar Texto Colado</button>
         </div>
       </details>
@@ -238,7 +310,8 @@
             <div class="stat-lbl">Tempo Estimado</div>
           </div>
         </div>
-        <div id="statEstimatedTimeSub" class="meta-text" style="text-align:center; margin-top:-6px; margin-bottom:8px; font-size:0.75rem;">
+        <div id="statEstimatedTimeSub" class="meta-text"
+          style="text-align:center; margin-top:-6px; margin-bottom:8px; font-size:0.75rem;">
           ⏱️ 3 min por endereço/apartamento + deslocamento
         </div>
         <div id="routeModeBadgeWrap" style="text-align:center; margin-bottom:12px;">
@@ -252,28 +325,28 @@
               🚶 Alcance máximo a pé (roteiro e atalhos)
             </label>
             <div class="walk-input-wrap">
-              <input
-                type="number"
-                id="maxWalkDistanceInput"
-                class="input-field walk-distance-input"
-                min="0"
-                max="1000"
-                step="10"
-                value="150"
-              />
+              <input type="number" id="maxWalkDistanceInput" class="input-field walk-distance-input" min="0" max="1000"
+                step="10" value="150" />
               <span class="walk-unit">m</span>
             </div>
           </div>
           <div class="walk-presets" id="walkPresetPills">
-            <button type="button" class="filter-pill" data-walk-meters="0" onclick="app.setMaxWalkDistance(0)">Desativado</button>
-            <button type="button" class="filter-pill" data-walk-meters="50" onclick="app.setMaxWalkDistance(50)">50m</button>
-            <button type="button" class="filter-pill" data-walk-meters="80" onclick="app.setMaxWalkDistance(80)">80m</button>
-            <button type="button" class="filter-pill active" data-walk-meters="150" onclick="app.setMaxWalkDistance(150)">150m</button>
-            <button type="button" class="filter-pill" data-walk-meters="250" onclick="app.setMaxWalkDistance(250)">250m</button>
-            <button type="button" class="filter-pill" data-walk-meters="400" onclick="app.setMaxWalkDistance(400)">400m</button>
+            <button type="button" class="filter-pill" data-walk-meters="0"
+              onclick="app.setMaxWalkDistance(0)">Desativado</button>
+            <button type="button" class="filter-pill" data-walk-meters="50"
+              onclick="app.setMaxWalkDistance(50)">50m</button>
+            <button type="button" class="filter-pill" data-walk-meters="80"
+              onclick="app.setMaxWalkDistance(80)">80m</button>
+            <button type="button" class="filter-pill active" data-walk-meters="150"
+              onclick="app.setMaxWalkDistance(150)">150m</button>
+            <button type="button" class="filter-pill" data-walk-meters="250"
+              onclick="app.setMaxWalkDistance(250)">250m</button>
+            <button type="button" class="filter-pill" data-walk-meters="400"
+              onclick="app.setMaxWalkDistance(400)">400m</button>
           </div>
           <p class="meta-text" style="font-size:0.76rem; margin-top:6px; line-height:1.35;">
-            Entregas dentro desse alcance já entram em sequência como paradas a pé no roteiro (e atalhos extras seguem ativos durante a rota).
+            Entregas dentro desse alcance já entram em sequência como paradas a pé no roteiro (e atalhos extras seguem
+            ativos durante a rota).
           </p>
         </div>
 
@@ -283,7 +356,8 @@
             <span class="walk-config-label">🧭 App de Navegação</span>
           </div>
           <div class="walk-presets" id="navAppPills">
-            <button type="button" class="filter-pill active" data-nav-app="maps" onclick="app.setNavApp('maps')">Google Maps</button>
+            <button type="button" class="filter-pill active" data-nav-app="maps" onclick="app.setNavApp('maps')">Google
+              Maps</button>
             <button type="button" class="filter-pill" data-nav-app="waze" onclick="app.setNavApp('waze')">Waze</button>
           </div>
           <p class="meta-text" id="navAppHint" style="font-size:0.76rem; margin-top:6px; line-height:1.35;">
@@ -293,32 +367,60 @@
 
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
           <button class="btn btn-primary" id="btnStartRoute">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"/></svg>
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" />
+            </svg>
             Iniciar Rota no App (Modo Entregador)
           </button>
 
           <a id="btnOpenFullRouteDirect" href="#" target="_blank" rel="noopener" class="btn btn-maps">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor"
+                stroke-width="2" />
+            </svg>
             Abrir Rota Completa no Google Maps (Android Auto)
           </a>
 
           <a id="btnOpenFirstStopWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze hidden">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             Abrir 1ª Parada no Waze
           </a>
 
           <button type="button" class="btn btn-secondary btn-sm" id="btnOpenMultiBatchModal">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" />
+              <line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" />
+              <line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" />
+            </svg>
             Ver Trechos Divididos (10 Paradas / Android Auto)
           </button>
 
-          <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesHome" onclick="app.recalculateAllRoutes()">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesHome"
+            onclick="app.recalculateAllRoutes()">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+                stroke="currentColor" stroke-width="2" />
+            </svg>
             Recalcular Rotas
+          </button>
+
+          <button type="button" class="btn btn-outline btn-sm" id="btnFinishRouteHome"
+            onclick="app.openFinishRouteModal()" style="border-color:rgba(239,68,68,0.45); color:var(--danger-text);">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor"
+                stroke-width="2" />
+              <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" stroke-width="2" />
+            </svg>
+            Encerrar Rota
           </button>
         </div>
 
-        <div style="font-size:0.8rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
+        <div
+          style="font-size:0.8rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
           Sequência de Entrega Gerada:
         </div>
         <div id="homePreviewStopsList" style="max-height:240px; overflow-y:auto;"></div>
@@ -326,47 +428,31 @@
     </section>
 
     <!-- ==========================================
-         TELA 2: ROTA ATIVA (MODO ENTREGADOR)
+         TELA 2: ROTA ATIVA (MODO ENTREGADOR - TELA PRINCIPAL = MAPA)
          ========================================== -->
-    <section id="screenActive" class="hidden" style="display:flex; flex-direction:column; gap:12px;">
-      <!-- BARRA DE BUSCA INSTANTÂNEA DE PACOTES -->
+    <section id="screenActive" style="display:flex; flex-direction:column; gap:10px;">
+      <!-- BARRA DE BUSCA INSTANTÂNEA DE PACOTES (ESTILO GOOGLE MAPS) -->
       <div class="quick-search-box" id="quickSearchBox">
         <div class="quick-search-input-wrap">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2"/></svg>
-          <input type="search" id="quickSearchInput" class="quick-search-input" placeholder="Buscar rastreio, rua ou pacote..." autocomplete="off" />
-          <button type="button" id="btnClearQuickSearch" class="icon-btn hidden" style="padding:2px; width:24px; height:24px;" aria-label="Limpar">
-            <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-width="2" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" />
+          </svg>
+          <input type="search" id="quickSearchInput" class="quick-search-input"
+            placeholder="Buscar endereço, rastreio ou pacote no mapa..." autocomplete="off" />
+          <button type="button" id="btnClearQuickSearch" class="icon-btn hidden"
+            style="padding:2px; width:24px; height:24px;" aria-label="Limpar">
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+              <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+              <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+            </svg>
           </button>
         </div>
         <div id="quickSearchResults" class="quick-search-dropdown hidden"></div>
       </div>
 
-      <!-- Barra de Abas Fixa -->
-      <nav class="tab-bar-nav" aria-label="Abas da Rota">
-        <button class="tab-btn active" data-tab="current">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <span>Atual</span>
-        </button>
-        <button class="tab-btn" data-tab="loading">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <span>Carregar</span>
-        </button>
-        <button class="tab-btn" data-tab="all">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
-          <span>Lista</span>
-        </button>
-        <button class="tab-btn" data-tab="organize">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="3" height="3" fill="currentColor"/></svg>
-          <span>Scanner</span>
-        </button>
-        <button class="tab-btn" data-tab="map">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-          <span>Mapa</span>
-        </button>
-      </nav>
-
       <!-- ABA 1: PARADA ATUAL -->
-      <div id="tabCurrentStop" style="display:flex; flex-direction:column; gap:12px;">
+      <div id="tabCurrentStop" class="hidden" style="display:flex; flex-direction:column; gap:12px;">
         <div class="card stop-card" id="currentStopSwipeCard">
           <div class="card-header" style="margin-bottom:6px;">
             <span class="kicker" id="currentStopCounter">PARADA 1 DE 57</span>
@@ -378,8 +464,15 @@
               <h2 class="title-lg" id="currentStopTitle">Carregando endereço...</h2>
               <div class="meta-text" id="currentStopMeta">Bairro • Cidade - UF</div>
             </div>
-            <button type="button" class="btn btn-outline btn-sm" id="btnCopyStopAddress" style="width:auto; padding:5px 9px; font-size:0.75rem; white-space:nowrap; flex-shrink:0;" onclick="app.copyCurrentAddress()">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <button type="button" class="btn btn-outline btn-sm" id="btnCopyStopAddress"
+              style="width:auto; padding:5px 9px; font-size:0.75rem; white-space:nowrap; flex-shrink:0;"
+              onclick="app.copyCurrentAddress()">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+              </svg>
               Copiar
             </button>
           </div>
@@ -393,7 +486,8 @@
           <!-- GPS Distance Pill -->
           <div class="gps-pill" id="gpsDistancePill">
             <span id="gpsDistanceText">Aguardando sinal GPS para calcular distância...</span>
-            <button class="btn btn-outline btn-sm" style="width:auto; padding:4px 8px; font-size:0.75rem;" onclick="app.initGPS()">
+            <button class="btn btn-outline btn-sm" style="width:auto; padding:4px 8px; font-size:0.75rem;"
+              onclick="app.initGPS()">
               Atualizar GPS
             </button>
           </div>
@@ -401,30 +495,50 @@
           <!-- Atalho a Pé Dinâmico (Status / Ajuste Rápido) -->
           <div class="walk-inline-bar" id="walkRadiusInlineBar">
             <span id="walkRadiusInlineLabel" class="walk-inline-label">🚶 Atalho a pé: até 150m</span>
-            <button type="button" class="btn btn-outline btn-sm walk-inline-btn" onclick="app.promptAdjustWalkDistance()">
+            <button type="button" class="btn btn-outline btn-sm walk-inline-btn"
+              onclick="app.promptAdjustWalkDistance()">
               Ajustar
             </button>
           </div>
 
           <!-- Botões de Ação de Navegação (Conforme preferência Maps ou Waze) -->
           <div style="display:flex; flex-direction:column; gap:8px; margin-top:14px;">
-            <a id="btnCurrentStopFullRoute" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="text-align:center;">
-              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <a id="btnCurrentStopFullRoute" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm"
+              style="text-align:center;">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+              </svg>
               Rota Completa (Google Maps)
             </a>
 
-            <a id="btnNavigateWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze btn-sm hidden" style="text-align:center;">
-              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <a id="btnNavigateWaze" href="#" target="_blank" rel="noopener" class="btn btn-waze btn-sm hidden"
+              style="text-align:center;">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+              </svg>
               Abrir Parada no Waze
             </a>
 
-            <button type="button" id="btnCurrentGoToStops" class="btn btn-outline btn-sm" onclick="app.switchTab('all')">
-              <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2"/><line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2"/><line x1="3" y1="6" x2="3.01" y2="6" stroke="currentColor" stroke-width="2"/><line x1="3" y1="12" x2="3.01" y2="12" stroke="currentColor" stroke-width="2"/><line x1="3" y1="18" x2="3.01" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+            <button type="button" id="btnCurrentGoToStops" class="btn btn-outline btn-sm"
+              onclick="app.switchTab('all')">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" />
+                <line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" />
+                <line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" />
+                <line x1="3" y1="6" x2="3.01" y2="6" stroke="currentColor" stroke-width="2" />
+                <line x1="3" y1="12" x2="3.01" y2="12" stroke="currentColor" stroke-width="2" />
+                <line x1="3" y1="18" x2="3.01" y2="18" stroke="currentColor" stroke-width="2" />
+              </svg>
               Lista de Paradas
             </button>
 
             <button id="btnMarkArrived" class="btn btn-success" style="margin-top:4px;">
-              <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+              <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+                <circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+              </svg>
               Cheguei no Endereço
             </button>
           </div>
@@ -457,28 +571,42 @@
           <div class="card-header">
             <div>
               <div class="kicker" style="color:var(--success-text);">
-                <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-                Pacotes para este endereço
+                <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                  <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" />
+                </svg>
+                Pacotes deste endereço (status individual)
               </div>
               <div style="font-size:0.95rem; font-weight:800;">Conferência de Entrega</div>
             </div>
-            <button class="btn btn-outline btn-sm" style="width:auto;" onclick="app.confirmStopAndNext()">
-              Confirmar Parada
-            </button>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline btn-sm" style="width:auto;" onclick="app.sendStopToEnd()"
+                title="Enviar esta parada para o final da rota">
+                ⏭ p/ Final
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" style="width:auto;" onclick="app.nextStop()">
+                Próxima Parada →
+              </button>
+            </div>
           </div>
 
           <div id="packageItemsContainer"></div>
 
-          <button class="btn btn-primary" id="btnConfirmStopAndNext" style="margin-top:8px;">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            Confirmar e Ir para Próxima Parada
+          <button type="button" class="btn btn-primary" id="btnConfirmStopAndNext" style="margin-top:8px;">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" />
+              <polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+            Ir para Próxima Parada
           </button>
         </div>
 
         <!-- PRÉVIA DA PRÓXIMA PARADA -->
         <div id="nextStopPreviewCard" class="card hidden" style="border-style:dashed;">
           <div class="kicker" style="color:var(--text-muted);">
-            <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2"/><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+              <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" />
+              <polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             Próxima Entrega em Sequência
           </div>
           <div id="nextStopTitle" style="font-weight:800; font-size:1rem; margin-top:2px;">-</div>
@@ -487,127 +615,152 @@
 
         <!-- RODAPÉ DE NAVEGAÇÃO -->
         <div class="btn-group">
-          <button class="btn btn-outline btn-sm" id="btnPrevStop">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <button type="button" class="btn btn-outline btn-sm" id="btnPrevStop">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             Parada Anterior
           </button>
-          <button class="btn btn-outline btn-sm" id="btnFinishEarly">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor" stroke-width="2"/><line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" stroke-width="2"/></svg>
+          <button type="button" class="btn btn-outline btn-sm" id="btnFinishEarly" onclick="app.openFinishRouteModal()"
+            style="border-color:rgba(239,68,68,0.45); color:var(--danger-text);">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" fill="none" stroke="currentColor"
+                stroke-width="2" />
+              <line x1="4" y1="22" x2="4" y2="15" stroke="currentColor" stroke-width="2" />
+            </svg>
             Encerrar Rota
           </button>
         </div>
       </div>
 
-      <!-- ABA 2: LISTA COMPLETA SEQUENCIAL (COM AUTO-SCROLL) -->
+      <!-- ABA 2: LISTA COMPLETA SEQUENCIAL (COM CONTROLE INDIVIDUAL DE QUALQUER ITEM) -->
       <div id="tabAllStops" class="card hidden">
         <div class="card-header">
           <div>
-            <div class="kicker">Sequência Sem Zigue-Zague</div>
-            <div style="font-weight:800; font-size:1.1rem;">Todas as Paradas da Rota</div>
+            <div class="kicker">Sequência Sem Zigue-Zague • Status Individual</div>
+            <div style="font-weight:800; font-size:1.1rem;">Todas as Paradas e Pacotes</div>
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-            <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesAll" style="width:auto; padding:5px 10px;" onclick="app.recalculateAllRoutes()" title="Refazer todas as rotas">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesAll"
+              style="width:auto; padding:5px 10px;" onclick="app.recalculateAllRoutes()" title="Refazer todas as rotas">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+                <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+                  stroke="currentColor" stroke-width="2" />
+              </svg>
               Recalcular
             </button>
-            <a id="btnAllStopsFullMaps" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="width:auto; padding:5px 10px;">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <a id="btnAllStopsFullMaps" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm"
+              style="width:auto; padding:5px 10px;">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+              </svg>
               Rota Completa
             </a>
-            <span class="badge badge-primary">Auto-scroll</span>
+            <button type="button" class="btn btn-outline btn-sm" id="btnFinishRouteAll"
+              style="width:auto; padding:5px 10px; border-color:rgba(239,68,68,0.45); color:var(--danger-text);"
+              onclick="app.openFinishRouteModal()">
+              Encerrar Rota
+            </button>
           </div>
         </div>
+        <p class="meta-text" style="font-size:0.76rem; margin-bottom:10px;">
+          Altere o status de qualquer item individualmente a qualquer momento, sem afetar outros pacotes.
+        </p>
         <div class="full-stops-list" id="fullStopsListContainer"></div>
       </div>
 
-      <!-- ABA 3: ORGANIZAR PACOTES (SCANNER QR / CÓDIGO DE BARRAS) -->
-      <div id="tabOrganize" class="card hidden">
-        <div class="card-header">
-          <div>
-            <div class="kicker">Bipagem & Organização do Porta-Malas</div>
-            <div style="font-weight:800; font-size:1.1rem;">Escanear QR / Código SPX</div>
-          </div>
-          <span class="badge" id="organizeScannedCount">0 pacotes</span>
-        </div>
-        <p class="meta-text" style="margin-bottom:12px;">
-          Escaneie o código do pacote na etiqueta para saber imediatamente a <strong>ordem de entrega e o número da parada</strong> antes de carregar o carro.
-        </p>
-
-        <!-- Viewfinder da Câmera -->
-        <div id="qrReaderElement" style="min-height:220px; margin-bottom:10px;"></div>
-
-        <div class="btn-group" style="margin-bottom:12px;">
-          <button class="btn btn-primary" id="scannerStartBtn">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-            Ativar Câmera
-          </button>
-          <button class="btn btn-secondary hidden" id="scannerStopBtn">
-            Desativar Câmera
-          </button>
-        </div>
-
-        <!-- Busca Manual -->
-        <div style="margin-bottom:12px;">
-          <input
-            type="text"
-            id="scannerSearchInput"
-            class="input-field"
-            placeholder="Ou digite o código de rastreio (ex: BR265505...)"
-          />
-        </div>
-
-        <!-- Card de Resultado do Scan -->
-        <div id="scanResultDisplay" class="scan-result-card hidden">
-          <div class="kicker" style="justify-content:center;">DESTINO IDENTIFICADO</div>
-          <div class="scan-big-number" id="scanStopNumber">PARADA #--</div>
-          <div style="font-weight:800; font-size:1rem;" id="scanPackageOrder">Pacote #-- de --</div>
-          <div style="font-size:0.95rem; margin-top:6px;" id="scanAddress">-</div>
-          <div class="meta-text" id="scanComplement">-</div>
-          <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);" id="scanTnCode"></div>
-        </div>
-
-        <button type="button" class="btn btn-outline btn-sm" onclick="app.switchTab('loading')" style="margin-top:12px;">
-          Ver Lista Completa de Carregamento (Ordem Inversa)
-        </button>
-      </div>
-
-      <!-- ABA: CARREGAMENTO (ORDEM INVERSA DA ENTREGA) -->
+      <!-- ABA UNIFICADA: CARREGAR & SCANNER (BIPAGEM QR/BARRAS + ORDEM INVERSA DA ENTREGA) -->
       <div id="tabLoading" class="card hidden">
         <div class="organize-load-header">
           <div>
             <div class="kicker" style="margin-bottom:2px;">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              Ordem de Carregamento (Inversa da Entrega)
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor"
+                  stroke-width="2" />
+              </svg>
+              Scanner SPX &amp; Ordem Inversa de Carregamento
             </div>
-            <div style="font-weight:800; font-size:1.1rem;">Carregar Veículo (Ordem Inversa)</div>
+            <div style="font-weight:800; font-size:1.1rem;">Carregar &amp; Escanear Pacotes</div>
           </div>
           <span class="badge" id="organizeLoadingProgressBadge">0 de 0 no carro</span>
+        </div>
+
+        <!-- Painel Integrado de Scanner (Câmera + Busca de Código) -->
+        <div
+          style="background:var(--bg-subtle); border:1px solid var(--border); border-radius:var(--radius); padding:10px; margin-bottom:12px;">
+          <div
+            style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <div style="font-size:0.8rem; font-weight:700; display:flex; align-items:center; gap:6px;">
+              <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2" />
+                <rect x="14" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2" />
+                <rect x="3" y="14" width="7" height="7" fill="none" stroke="currentColor" stroke-width="2" />
+                <rect x="14" y="14" width="3" height="3" fill="currentColor" />
+              </svg>
+              <span>Bipar etiqueta para ver Parada e marcar no carro</span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button type="button" class="btn btn-primary btn-sm" id="scannerStartBtn"
+                style="width:auto; padding:6px 12px;">
+                <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+                    fill="none" stroke="currentColor" stroke-width="2" />
+                  <circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+                </svg>
+                Escanear Câmera
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm hidden" id="scannerStopBtn"
+                style="width:auto; padding:6px 12px;">
+                Fechar Câmera
+              </button>
+            </div>
+          </div>
+
+          <!-- Viewfinder da Câmera (visível apenas quando a câmera está ativa) -->
+          <div id="qrReaderElement" class="hidden" style="min-height:220px; margin-bottom:10px;"></div>
+
+          <!-- Card de Resultado Rápido do Scan -->
+          <div id="scanResultDisplay" class="scan-result-card hidden" style="margin-bottom:8px;">
+            <div class="kicker" style="justify-content:center;">DESTINO IDENTIFICADO</div>
+            <div class="scan-big-number" id="scanStopNumber">PARADA #--</div>
+            <div style="font-weight:800; font-size:1rem;" id="scanPackageOrder">Pacote #-- de --</div>
+            <div style="font-size:0.95rem; margin-top:6px;" id="scanAddress">-</div>
+            <div class="meta-text" id="scanComplement">-</div>
+            <div style="margin-top:8px; font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);"
+              id="scanTnCode"></div>
+          </div>
+
+          <!-- Busca e Bipagem Manual Unificada -->
+          <div style="display:flex; gap:6px;">
+            <input type="search" id="loadingSearchInput" class="input-field"
+              placeholder="Filtrar lista ou bipar/digitar código SPX (ex: BR2655...)..." autocomplete="off"
+              style="flex:1;" />
+            <button type="button" class="btn btn-outline btn-sm" id="btnManualScanLookup"
+              style="width:auto; padding:0 12px; flex-shrink:0;" onclick="app.triggerManualScanFromInput()">
+              Bipar
+            </button>
+          </div>
+          <input type="hidden" id="scannerSearchInput" />
         </div>
 
         <p class="meta-text" style="margin-bottom:10px; font-size:0.8rem; line-height:1.4;">
           Lista em ordem decrescente (do maior número de entrega para o menor). Carregue primeiro os números maiores.
         </p>
 
-        <!-- Busca Rápida na Aba de Carregamento -->
-        <div style="margin-bottom:10px;">
-          <input
-            type="search"
-            id="loadingSearchInput"
-            class="input-field"
-            placeholder="Filtrar por rastreio, rua, parada (#12), apto ou local..."
-            autocomplete="off"
-          />
-        </div>
-
         <!-- Filtros Rápidos -->
         <div class="load-filter-pills" id="loadFilterPills">
           <button type="button" class="filter-pill active" data-load-filter="all" onclick="app.setLoadingFilter('all')">
             Todos (<span id="loadFilterCountAll">0</span>)
           </button>
-          <button type="button" class="filter-pill" data-load-filter="pending" onclick="app.setLoadingFilter('pending')">
+          <button type="button" class="filter-pill" data-load-filter="pending"
+            onclick="app.setLoadingFilter('pending')">
             Pendentes (<span id="loadFilterCountPending">0</span>)
           </button>
-          <button type="button" class="filter-pill" data-load-filter="checked" onclick="app.setLoadingFilter('checked')">
+          <button type="button" class="filter-pill" data-load-filter="checked"
+            onclick="app.setLoadingFilter('checked')">
             No Carro (<span id="loadFilterCountChecked">0</span>)
           </button>
           <button type="button" class="filter-pill" data-load-filter="photo" onclick="app.setLoadingFilter('photo')">
@@ -621,52 +774,154 @@
         </div>
       </div>
 
-      <!-- ABA 4: MAPA INTERATIVO -->
-      <div id="tabMap" class="card hidden">
-        <div class="card-header" style="gap:8px; flex-wrap:wrap;">
-          <div>
-            <div class="kicker" id="mapRouteModeKicker">Trajeto Pelas Vias</div>
-            <div style="font-weight:800; font-size:1.1rem;">Mapa da Rota</div>
+      <!-- ABA PRINCIPAL: MAPA INTERATIVO (ESTILO GOOGLE MAPS) -->
+      <div id="tabMap" class="gmaps-screen">
+        <!-- HUD Superior Estilo Google Maps (Placa de Navegação + Legenda) -->
+        <div class="gmaps-top-overlay">
+          <div id="mapNavHud" class="map-nav-hud gmaps-turn-banner">
+            <div class="gmaps-turn-icon">
+              <svg class="icon" width="22" height="22" viewBox="0 0 24 24">
+                <polygon points="3 11 22 2 13 21 11 13 3 11" fill="currentColor" />
+              </svg>
+            </div>
+            <div style="flex:1; min-width:0;">
+              <div class="kicker" id="mapRouteModeKicker" style="color:#a7f3d0; font-size:0.66rem; margin-bottom:1px;">
+                Trajeto pelas Vias</div>
+              <div class="map-nav-hud-turn" id="mapNextTurnInstruction">Importe uma planilha ou selecione uma parada no
+                mapa</div>
+            </div>
+            <span class="badge badge-primary" id="mapActiveStopPill" style="flex-shrink:0;">Mapa</span>
           </div>
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            <button type="button" class="btn btn-outline btn-sm" id="btnRecalculateRoutesMap" style="width:auto; padding:5px 8px;" onclick="app.recalculateAllRoutes()" title="Refazer todas as rotas">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              Recalcular
-            </button>
-            <button type="button" class="btn btn-outline btn-sm" id="btnToggleFollowGps" style="width:auto; padding:5px 8px;" onclick="app.toggleFollowGps()">
-              Seguir GPS
-            </button>
-            <button class="btn btn-outline btn-sm" id="btnFitAllMap" style="width:auto; padding:5px 8px;" onclick="app.fitAllStopsMap()" title="Ver todas as paradas">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-              Ver Todas
-            </button>
-            <button class="btn btn-outline btn-sm" id="btnCenterMap" style="width:auto; padding:5px 8px;" onclick="app.centerMapOnCurrent()" title="Focar parada atual">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="22" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="2"/><line x1="6" y1="12" x2="2" y2="12" stroke="currentColor" stroke-width="2"/><line x1="12" y1="6" x2="12" y2="2" stroke="currentColor" stroke-width="2"/><line x1="12" y1="22" x2="12" y2="18" stroke="currentColor" stroke-width="2"/></svg>
-              Focar Atual
-            </button>
+
+          <div class="gmaps-legend-pills">
+            <span class="gmaps-legend-chip"><i class="map-legend-swatch map-legend-drive"></i> Carro</span>
+            <span class="gmaps-legend-chip"><i class="map-legend-swatch map-legend-hub"></i> Ponto P</span>
+            <span class="gmaps-legend-chip"><i class="map-legend-swatch map-legend-walk"></i> A pé</span>
           </div>
         </div>
 
-        <div id="mapNavHud" class="map-nav-hud">
-          <div class="map-nav-hud-turn" id="mapNextTurnInstruction">Carregando trajeto pelas vias...</div>
-          <span class="badge badge-primary" id="mapActiveStopPill" style="flex-shrink:0;">Parada #1</span>
+        <!-- Botões Flutuantes Laterais Estilo Google Maps -->
+        <div class="gmaps-fab-stack">
+          <button type="button" class="gmaps-fab-btn" id="btnToggleFollowGps" onclick="app.toggleFollowGps()"
+            title="Seguir minha posição GPS">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polygon points="3 11 22 2 13 21 11 13 3 11" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span>GPS</span>
+          </button>
+          <button type="button" class="gmaps-fab-btn" id="btnCenterMap" onclick="app.centerMapOnCurrent()"
+            title="Focar na parada atual">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="22" y1="12" x2="18" y2="12" stroke="currentColor" stroke-width="2" />
+              <line x1="6" y1="12" x2="2" y2="12" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="6" x2="12" y2="2" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="22" x2="12" y2="18" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span>Atual</span>
+          </button>
+          <button type="button" class="gmaps-fab-btn" id="btnFitAllMap" onclick="app.fitAllStopsMap()"
+            title="Ver todas as paradas">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor"
+                stroke-width="2" />
+            </svg>
+            <span>Todas</span>
+          </button>
+          <button type="button" class="gmaps-fab-btn" id="btnRecalculateRoutesMap" onclick="app.recalculateAllRoutes()"
+            title="Recalcular todas as rotas">
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+                stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span>Recalcular</span>
+          </button>
         </div>
 
-        <div id="map"></div>
+        <!-- Canvas do Mapa em Tela Cheia -->
+        <div id="map" class="gmaps-canvas"></div>
 
-        <div class="map-legend-row">
-          <span><i class="map-legend-swatch map-legend-drive"></i> Carro (pelas ruas)</span>
-          <span><i class="map-legend-swatch map-legend-hub"></i> Ponto de Parada</span>
-          <span><i class="map-legend-swatch map-legend-walk"></i> A pé (calçadas/vias)</span>
+        <!-- Card Flutuante quando ainda não há planilha carregada -->
+        <div id="mapEmptyOverlay" class="gmaps-bottom-sheet hidden">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:800; font-size:0.95rem;">Importe sua Planilha de Entregas</div>
+              <div class="meta-text" style="font-size:0.78rem;">Carregue o arquivo .XLSX ou .CSV para ver os pontos de
+                parada e rotas no mapa.</div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <label for="spreadsheetFileInput" class="btn btn-primary btn-sm"
+                style="width:auto; cursor:pointer; margin:0;">
+                Importar Planilha
+              </label>
+              <button type="button" class="btn btn-outline btn-sm" style="width:auto;" onclick="app.switchTab('home')">
+                Configurar
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div id="mapCarSyncBox" class="map-car-sync-box">
-          <a id="btnMapLaunchCarNav" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-sm" style="text-align:center;">
-            Abrir Rota no Android Auto / CarPlay
-          </a>
-          <p class="meta-text" id="mapCarSyncNote" style="font-size:0.74rem; line-height:1.35; margin-top:6px;">
-            Navegadores/PWA não espelham mapas próprios na tela do Android Auto ou Apple CarPlay (restrição nativa de Google/Apple). Use o botão acima para enviar este roteiro ao Google Maps ou Waze no painel do veículo.
-          </p>
+        <!-- Gaveta Inferior Estilo Google Maps (Parada Ativa + Pacotes Individuais + Navegação) -->
+        <div id="mapBottomStopSheet" class="gmaps-bottom-sheet hidden">
+          <div class="gmaps-sheet-handle" onclick="app.toggleMapItemsDrawer()"></div>
+          <div class="gmaps-sheet-header">
+            <button type="button" class="gmaps-nav-arrow" onclick="app.prevStop()" title="Parada anterior"
+              aria-label="Parada anterior">
+              <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+                <polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor" stroke-width="2.5" />
+              </svg>
+            </button>
+            <div style="flex:1; min-width:0;" onclick="app.toggleMapItemsDrawer()">
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <span class="badge badge-primary" id="mapSheetStopBadge" style="font-size:0.7rem;">Parada #1</span>
+                <span class="badge" id="mapSheetHubBadge"
+                  style="font-size:0.7rem; background:rgba(37,99,235,0.16); color:#60a5fa;">Ponto #1</span>
+                <span class="meta-text" id="mapSheetWalkTag"
+                  style="font-size:0.72rem; font-weight:700; color:#10b981;"></span>
+              </div>
+              <div id="mapSheetStopTitle"
+                style="font-weight:800; font-size:0.96rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;">
+                -</div>
+              <div class="meta-text" id="mapSheetStopMeta" style="font-size:0.75rem;">-</div>
+            </div>
+            <button type="button" class="gmaps-nav-arrow" onclick="app.nextStop()" title="Próxima parada"
+              aria-label="Próxima parada">
+              <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor" stroke-width="2.5" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="gmaps-sheet-actions" id="mapCarSyncBox">
+            <a id="btnMapWalkRoute" href="#" target="_blank" rel="noopener" class="btn btn-success btn-xs"
+              style="flex:1; text-align:center;">
+              🚶 Rota a Pé
+            </a>
+            <a id="btnMapLaunchCarNav" href="#" target="_blank" rel="noopener" class="btn btn-maps btn-xs"
+              style="flex:1; text-align:center;">
+              🚗 Dirigir
+            </a>
+            <button type="button" class="btn btn-outline btn-xs" id="btnDeferStopMap" onclick="app.sendStopToEnd()"
+              style="width:auto;" title="Enviar parada atual para o final da rota">
+              ⏭ Final
+            </button>
+            <button type="button" class="btn btn-outline btn-xs" id="btnToggleMapItemsDrawer"
+              onclick="app.toggleMapItemsDrawer()" style="flex:1;">
+              📦 Pacotes (1)
+            </button>
+            <button type="button" class="btn btn-outline btn-xs" id="btnFinishRouteMap"
+              onclick="app.openFinishRouteModal()"
+              style="width:auto; border-color:rgba(239,68,68,0.45); color:var(--danger-text);" title="Encerrar Rota">
+              Encerrar Rota
+            </button>
+          </div>
+
+          <!-- Lista Rápida de Pacotes da Parada Atual (Direto no Mapa) -->
+          <div id="mapSheetItemsDrawer" class="gmaps-sheet-items">
+            <div id="mapSheetItemsContainer"></div>
+          </div>
         </div>
       </div>
     </section>
@@ -676,7 +931,9 @@
          ========================================== -->
     <section id="screenReport" class="card hidden">
       <div class="kicker" style="color:var(--success-text);">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+          <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
         Rota Concluída
       </div>
       <h2 class="title-lg">Relatório de Desempenho do Dia</h2>
@@ -699,15 +956,28 @@
 
       <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
         <button class="btn btn-primary" id="btnExportCSV">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+            <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+            <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+          </svg>
           Baixar Relatório em CSV (Excel)
         </button>
         <button class="btn btn-secondary" id="btnCopySummary" onclick="app.copyRouteSummary()">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor"
+              stroke-width="2" />
+          </svg>
           Copiar Resumo da Rota
         </button>
         <button class="btn btn-outline btn-sm" id="btnResetRoute">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+            <polyline points="1 20 1 14 7 14" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none"
+              stroke="currentColor" stroke-width="2" />
+          </svg>
           Iniciar Nova Rota
         </button>
       </div>
@@ -734,6 +1004,52 @@
     </section>
   </main>
 
+  <!-- BARRA DE MENUS SEMPRE FIXA NA BASE DA TELA (ESTILO INSTAGRAM) -->
+  <nav class="tab-bar-nav bottom-instagram-nav" id="bottomTabBar" aria-label="Menu Principal">
+    <button type="button" class="tab-btn active" data-tab="map">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+        <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" fill="none" stroke="currentColor"
+          stroke-width="2" />
+      </svg>
+      <span>Mapa</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="current">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" fill="none" stroke="currentColor" stroke-width="2" />
+        <circle cx="12" cy="10" r="3" fill="none" stroke="currentColor" stroke-width="2" />
+      </svg>
+      <span>Parada</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="all">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+        <line x1="8" y1="6" x2="21" y2="6" stroke="currentColor" stroke-width="2" />
+        <line x1="8" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="2" />
+        <line x1="8" y1="18" x2="21" y2="18" stroke="currentColor" stroke-width="2" />
+        <circle cx="4" cy="6" r="1" fill="currentColor" />
+        <circle cx="4" cy="12" r="1" fill="currentColor" />
+        <circle cx="4" cy="18" r="1" fill="currentColor" />
+      </svg>
+      <span>Lista</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="loading">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor"
+          stroke-width="2" />
+      </svg>
+      <span>Carregar</span>
+    </button>
+    <button type="button" class="tab-btn" data-tab="home">
+      <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor"
+          stroke-width="2" />
+        <polyline points="14 2 14 8 20 8" fill="none" stroke="currentColor" stroke-width="2" />
+        <line x1="12" y1="18" x2="12" y2="12" stroke="currentColor" stroke-width="2" />
+        <line x1="9" y1="15" x2="15" y2="15" stroke="currentColor" stroke-width="2" />
+      </svg>
+      <span>Planilha</span>
+    </button>
+  </nav>
+
   <!-- ==========================================
        MODAIS (SCANNER, HISTÓRICO, FIREBASE AUTH, MULTI-MAPS)
        ========================================== -->
@@ -743,27 +1059,39 @@
     <div class="modal-content scan-modal-card">
       <div class="modal-header">
         <div class="kicker" style="color:var(--success-text); margin-bottom:0;">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5" />
+          </svg>
           Pacote Identificado
         </div>
-        <button type="button" class="icon-btn" onclick="app.closeScanModal()" aria-label="Fechar e voltar para a câmera">
-          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+        <button type="button" class="icon-btn" onclick="app.closeScanModal()"
+          aria-label="Fechar e voltar para a câmera">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
 
       <div style="text-align:center; padding:4px 0;">
         <div class="scan-big-number" id="modalScanStopNumber">PARADA #--</div>
         <div style="display:flex; justify-content:center; align-items:center; gap:6px; flex-wrap:wrap; margin-top:2px;">
-          <div class="badge badge-primary" style="font-size:0.9rem; padding:4px 12px;" id="modalScanPackageOrder">Pacote #-- de --</div>
-          <div id="modalScanApartment" class="badge hidden" style="font-size:0.9rem; padding:4px 12px; background:rgba(238,77,45,0.15); color:var(--primary); font-weight:800; border:1px solid rgba(238,77,45,0.3);"></div>
+          <div class="badge badge-primary" style="font-size:0.9rem; padding:4px 12px;" id="modalScanPackageOrder">Pacote
+            #-- de --</div>
+          <div id="modalScanApartment" class="badge hidden"
+            style="font-size:0.9rem; padding:4px 12px; background:rgba(238,77,45,0.15); color:var(--primary); font-weight:800; border:1px solid rgba(238,77,45,0.3);">
+          </div>
         </div>
       </div>
 
-      <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-top:4px;">
-        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Endereço de Entrega:</div>
+      <div
+        style="background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px; margin-top:4px;">
+        <div style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Endereço de
+          Entrega:</div>
         <div style="font-weight:800; font-size:1.05rem; margin-top:3px;" id="modalScanAddress">-</div>
         <div class="meta-text" id="modalScanComplement" style="margin-top:2px;">-</div>
-        <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">
+        <div
+          style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted);">
           <span>Código de Rastreio: </span><strong id="modalScanTnCode" style="color:var(--text);">-</strong>
         </div>
       </div>
@@ -771,37 +1099,57 @@
       <!-- Seção de Foto Aberta do Pacote -->
       <div class="scan-photo-card" id="modalScanPhotoCard">
         <div id="modalScanNoPhotoBox" class="scan-photo-placeholder">
-          <div style="font-weight:700; font-size:0.85rem; color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px;">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <div
+            style="font-weight:700; font-size:0.85rem; color:var(--text); display:flex; align-items:center; justify-content:center; gap:6px;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24" style="color:var(--primary);">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none"
+                stroke="currentColor" stroke-width="2" />
+              <circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             Foto Aberta do Pacote
           </div>
           <p class="meta-text" style="font-size:0.78rem; text-align:center; margin:3px 0 8px 0;">
             Afaste o celular para fotografar o pacote inteiro e achar rápido na entrega!
           </p>
-          <button type="button" class="btn btn-outline btn-sm" id="btnModalTakePic" onclick="app.triggerPackagePhotoCapture()" style="width:100%; justify-content:center; padding:8px 12px; font-weight:700;">
-            <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <button type="button" class="btn btn-outline btn-sm" id="btnModalTakePic"
+            onclick="app.triggerPackagePhotoCapture()"
+            style="width:100%; justify-content:center; padding:8px 12px; font-weight:700;">
+            <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none"
+                stroke="currentColor" stroke-width="2" />
+              <circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
             Tirar Foto
           </button>
         </div>
 
         <div id="modalScanHasPhotoBox" class="scan-photo-preview-wrap hidden">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-            <span style="font-size:0.75rem; font-weight:700; color:var(--success-text); display:flex; align-items:center; gap:4px;">
-              <svg class="icon" width="14" height="14" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+            <span
+              style="font-size:0.75rem; font-weight:700; color:var(--success-text); display:flex; align-items:center; gap:4px;">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24">
+                <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5" />
+              </svg>
               Foto salva para a rota
             </span>
             <div style="display:flex; gap:6px;">
-              <button type="button" class="btn btn-ghost btn-xs" onclick="app.triggerPackagePhotoCapture()">Trocar</button>
-              <button type="button" class="btn btn-ghost btn-xs" onclick="app.deleteCurrentPackagePhoto()" style="color:var(--danger-text);">Excluir</button>
+              <button type="button" class="btn btn-ghost btn-xs"
+                onclick="app.triggerPackagePhotoCapture()">Trocar</button>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="app.deleteCurrentPackagePhoto()"
+                style="color:var(--danger-text);">Excluir</button>
             </div>
           </div>
-          <img id="modalScanPhotoImg" src="" alt="Foto do Pacote" class="scan-photo-preview-img" onclick="app.viewPhotoLarge(this.src)" />
+          <img id="modalScanPhotoImg" src="" alt="Foto do Pacote" class="scan-photo-preview-img"
+            onclick="app.viewPhotoLarge(this.src)" />
         </div>
       </div>
 
       <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
-        <button type="button" class="btn btn-primary" id="btnOkScanNext" onclick="app.closeScanModal()" style="font-size:1.05rem; padding:12px; justify-content:center;">
-          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+        <button type="button" class="btn btn-primary" id="btnOkScanNext" onclick="app.closeScanModal()"
+          style="font-size:1.05rem; padding:12px; justify-content:center;">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5" />
+          </svg>
           OK (Escanear Próximo)
         </button>
       </div>
@@ -813,18 +1161,27 @@
     <div class="modal-content install-modal-card">
       <div class="modal-header">
         <div class="kicker" style="color:var(--primary); margin-bottom:0;">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" stroke-width="2" />
+            <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" stroke-width="2" />
+            <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" />
+          </svg>
           Instalar no Celular
         </div>
         <button type="button" class="icon-btn" onclick="app.closeModal('modalInstallApp')" aria-label="Fechar">
-          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
 
       <div style="text-align:center; padding:10px 0;">
-        <img src="icons/icon.svg" width="60" height="60" alt="Organiza Entregas" style="border-radius:14px; box-shadow:0 6px 16px rgba(238,77,45,0.25);" />
+        <img src="icons/icon.svg" width="60" height="60" alt="Organiza Entregas"
+          style="border-radius:14px; box-shadow:0 6px 16px rgba(238,77,45,0.25);" />
         <h3 style="font-weight:900; font-size:1.15rem; margin-top:10px;">Instalar Organiza Entregas</h3>
-        <p class="meta-text" style="font-size:0.84rem;">Instale como aplicativo nativo para usar 100% offline mesmo sem sinal de internet na rua.</p>
+        <p class="meta-text" style="font-size:0.84rem;">Instale como aplicativo nativo para usar 100% offline mesmo sem
+          sinal de internet na rua.</p>
       </div>
 
       <!-- Instruções Específicas para iPhone / iOS Safari -->
@@ -832,19 +1189,31 @@
         <div class="install-guide-step">
           <div class="install-step-num">1</div>
           <div class="install-step-text">
-            No Safari, toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima <svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 6 12 2 8 6" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2"/></svg>) na barra inferior do iPhone.
+            No Safari, toque no botão <strong>Compartilhar</strong> (ícone de quadrado com seta para cima <svg
+              class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" fill="none" stroke="currentColor" stroke-width="2" />
+              <polyline points="16 6 12 2 8 6" fill="none" stroke="currentColor" stroke-width="2" />
+              <line x1="12" y1="2" x2="12" y2="15" stroke="currentColor" stroke-width="2" />
+            </svg>) na barra inferior do iPhone.
           </div>
         </div>
         <div class="install-guide-step">
           <div class="install-step-num">2</div>
           <div class="install-step-text">
-            Role a lista de opções para cima e toque em <strong>"Adicionar à Tela de Início"</strong> (<svg class="icon" width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2"/></svg>).
+            Role a lista de opções para cima e toque em <strong>"Adicionar à Tela de Início"</strong> (<svg class="icon"
+              width="16" height="16" style="vertical-align:middle; display:inline;" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" fill="none" stroke="currentColor"
+                stroke-width="2" />
+              <line x1="12" y1="8" x2="12" y2="16" stroke="currentColor" stroke-width="2" />
+              <line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2" />
+            </svg>).
           </div>
         </div>
         <div class="install-guide-step">
           <div class="install-step-num">3</div>
           <div class="install-step-text">
-            Toque em <strong>"Adicionar"</strong> no canto superior direito. Pronto! O app aparecerá na tela do seu iPhone.
+            Toque em <strong>"Adicionar"</strong> no canto superior direito. Pronto! O app aparecerá na tela do seu
+            iPhone.
           </div>
         </div>
       </div>
@@ -871,7 +1240,8 @@
         </div>
       </div>
 
-      <button type="button" class="btn btn-primary" onclick="app.closeModal('modalInstallApp')" style="margin-top:10px; width:100%; justify-content:center;">
+      <button type="button" class="btn btn-primary" onclick="app.closeModal('modalInstallApp')"
+        style="margin-top:10px; width:100%; justify-content:center;">
         Entendi!
       </button>
     </div>
@@ -883,7 +1253,10 @@
       <div class="modal-header">
         <h3 style="font-weight:800; font-size:1.1rem;">Histórico de Rotas Concluídas</h3>
         <button class="icon-btn" onclick="app.closeModal('modalHistory')" aria-label="Fechar">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
       <p class="meta-text">Rotas finalizadas salvas no Firebase / LocalStorage.</p>
@@ -898,11 +1271,16 @@
       <div class="modal-header">
         <h3 style="font-weight:800; font-size:1.1rem;">Rota Multi-Paradas (Google Maps)</h3>
         <button class="icon-btn" onclick="app.closeModal('modalMultiBatch')" aria-label="Fechar">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
-      <div id="multiBatchList" style="max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;"></div>
-      <button class="btn btn-secondary" onclick="app.closeModal('modalMultiBatch')" style="margin-top:8px;">Fechar</button>
+      <div id="multiBatchList" style="max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">
+      </div>
+      <button class="btn btn-secondary" onclick="app.closeModal('modalMultiBatch')"
+        style="margin-top:8px;">Fechar</button>
     </div>
   </div>
 
@@ -912,19 +1290,28 @@
       <div class="modal-header">
         <h3 style="font-weight:800; font-size:1.1rem;">Login do Entregador</h3>
         <button class="icon-btn" onclick="app.closeModal('modalAuth')" aria-label="Fechar">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
 
       <!-- Visão quando já está logado -->
       <div id="authLoggedInView" class="hidden" style="display:flex; flex-direction:column; gap:10px;">
         <div class="card" style="padding:14px; background:var(--surface-2);">
-          <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Entregador Conectado</div>
-          <div id="loggedUserEmail" style="font-weight:800; font-size:1.05rem; color:var(--primary); margin:4px 0;">--</div>
+          <div style="font-size:0.8rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Entregador
+            Conectado</div>
+          <div id="loggedUserEmail" style="font-weight:800; font-size:1.05rem; color:var(--primary); margin:4px 0;">--
+          </div>
           <div class="meta-text">Suas rotas finalizadas são salvas e sincronizadas automaticamente no Firestore.</div>
         </div>
         <button class="btn btn-outline" onclick="handleLogout()">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2"/><line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="2" />
+            <polyline points="16 17 21 12 16 7" fill="none" stroke="currentColor" stroke-width="2" />
+            <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="2" />
+          </svg>
           Desconectar / Sair da Conta
         </button>
       </div>
@@ -932,17 +1319,22 @@
       <!-- Formulário de Login / Cadastro -->
       <div id="authLoginForm" style="display:flex; flex-direction:column; gap:10px;">
         <p class="meta-text" id="authStatusText">Conecte sua conta para sincronizar o histórico na nuvem.</p>
-        
+
         <input type="email" id="authEmailInput" class="input-field" placeholder="Seu e-mail..." />
         <input type="password" id="authPassInput" class="input-field" placeholder="Sua senha..." />
-        
+
         <button class="btn btn-primary" id="btnSubmitEmailLogin" onclick="handleEmailLogin()">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2" />
+            <circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
           Entrar com E-mail
         </button>
         <button class="btn btn-secondary" onclick="handleEmailRegister()">Criar Conta</button>
         <button class="btn btn-outline btn-sm" onclick="handleGoogleLogin()">
-          <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="16" height="16" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
           Entrar com Google
         </button>
       </div>
@@ -954,19 +1346,29 @@
     <div class="modal-content" style="max-width:440px; padding:14px; text-align:center;">
       <div class="modal-header" style="margin-bottom:10px;">
         <div style="font-weight:800; font-size:1rem; display:flex; align-items:center; gap:6px;">
-          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--primary);"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="18" height="18" viewBox="0 0 24 24" style="color:var(--primary);">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none"
+              stroke="currentColor" stroke-width="2" />
+            <circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
           <span id="photoViewerTitle">Foto da Embalagem</span>
         </div>
         <button type="button" class="icon-btn" onclick="app.closeModal('modalPhotoViewer')" aria-label="Fechar">
-          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
-      <div style="border-radius:var(--radius-sm); overflow:hidden; background:#0a0a0c; display:flex; align-items:center; justify-content:center; max-height:65vh; border:1px solid var(--border);">
-        <img id="photoViewerImg" src="" alt="Foto Ampliada do Pacote" style="max-width:100%; max-height:65vh; object-fit:contain; display:block;" />
+      <div
+        style="border-radius:var(--radius-sm); overflow:hidden; background:#0a0a0c; display:flex; align-items:center; justify-content:center; max-height:65vh; border:1px solid var(--border);">
+        <img id="photoViewerImg" src="" alt="Foto Ampliada do Pacote"
+          style="max-width:100%; max-height:65vh; object-fit:contain; display:block;" />
       </div>
       <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
         <span class="meta-text" id="photoViewerMeta" style="font-size:0.8rem; text-align:left;"></span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="app.closeModal('modalPhotoViewer')">Fechar</button>
+        <button type="button" class="btn btn-outline btn-sm"
+          onclick="app.closeModal('modalPhotoViewer')">Fechar</button>
       </div>
     </div>
   </div>
@@ -979,7 +1381,10 @@
           🚶 Entrega Próxima Detectada
         </div>
         <button type="button" class="icon-btn" onclick="app.declineWalkDelivery()" aria-label="Fechar">
-          <svg class="icon" width="20" height="20" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></svg>
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
         </button>
       </div>
 
@@ -993,7 +1398,8 @@
           <button type="button" class="btn btn-primary" id="btnAcceptWalkDelivery" onclick="app.acceptWalkDelivery()">
             Sim, realizar a entrega a pé
           </button>
-          <button type="button" class="btn btn-outline btn-sm" id="btnDeclineWalkDelivery" onclick="app.declineWalkDelivery()">
+          <button type="button" class="btn btn-outline btn-sm" id="btnDeclineWalkDelivery"
+            onclick="app.declineWalkDelivery()">
             Não, manter na fila
           </button>
         </div>
@@ -1005,10 +1411,13 @@
         <div id="walkPackageItemsContainer" style="max-height:46vh; overflow-y:auto;"></div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
           <button type="button" class="btn btn-success" id="btnConfirmWalkDelivery" onclick="app.confirmWalkDelivery()">
-            <svg class="icon" width="18" height="18" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+            <svg class="icon" width="18" height="18" viewBox="0 0 24 24">
+              <polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2.5" />
+            </svg>
             Concluir Entrega a Pé e Recalcular Rota
           </button>
-          <button type="button" class="btn btn-outline btn-sm" id="btnCancelWalkDelivery" onclick="app.cancelWalkDelivery()">
+          <button type="button" class="btn btn-outline btn-sm" id="btnCancelWalkDelivery"
+            onclick="app.cancelWalkDelivery()">
             Cancelar e voltar para a fila
           </button>
         </div>
@@ -1016,14 +1425,62 @@
     </div>
   </div>
 
+  <!-- Modal de Confirmação Obrigatória para Encerrar Rota -->
+  <div id="modalConfirmFinishRoute" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width:400px;">
+      <div class="modal-header">
+        <div>
+          <div class="kicker" style="color:var(--danger-text); margin-bottom:2px;">Confirmação Necessária</div>
+          <div style="font-weight:800; font-size:1.1rem;">Deseja Encerrar a Rota?</div>
+        </div>
+        <button type="button" class="icon-btn" onclick="app.closeModal('modalConfirmFinishRoute')" aria-label="Fechar">
+          <svg class="icon" width="20" height="20" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" />
+            <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" />
+          </svg>
+        </button>
+      </div>
+
+      <p class="meta-text" style="font-size:0.84rem; margin-bottom:12px; line-height:1.4;">
+        Confira o resumo atual dos pacotes antes de encerrar definitivamente a rota:
+      </p>
+
+      <div class="stat-grid" style="grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:12px;">
+        <div class="stat-box" style="padding:8px;">
+          <div class="stat-val" id="finishModalDeliveredCount" style="color:var(--success-text); font-size:1.25rem;">0
+          </div>
+          <div class="stat-lbl" style="font-size:0.7rem;">Entregues</div>
+        </div>
+        <div class="stat-box" style="padding:8px;">
+          <div class="stat-val" id="finishModalPendingCount" style="color:var(--warning-text); font-size:1.25rem;">0
+          </div>
+          <div class="stat-lbl" style="font-size:0.7rem;">Pendentes</div>
+        </div>
+        <div class="stat-box" style="padding:8px;">
+          <div class="stat-val" id="finishModalFailedCount" style="color:var(--danger-text); font-size:1.25rem;">0</div>
+          <div class="stat-lbl" style="font-size:0.7rem;">Com Falha</div>
+        </div>
+      </div>
+
+      <div id="finishModalPendingWarning" class="note-box hidden" style="margin-bottom:12px;">
+        <span>⚠️ Ainda existem pacotes pendentes. Ao encerrar, eles serão registrados como não entregues no
+          relatório.</span>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button type="button" class="btn btn-primary" id="btnConfirmFinishRouteAction"
+          onclick="app.confirmFinishRoute()" style="background:var(--danger); border-color:var(--danger);">
+          Confirmar e Encerrar Rota
+        </button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="app.closeModal('modalConfirmFinishRoute')">
+          Cancelar e Continuar na Rota
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Input Oculto de Câmera para Captura da Foto do Pacote -->
-  <input
-    type="file"
-    id="packagePhotoFileInput"
-    accept="image/*"
-    capture="environment"
-    style="display:none;"
-  />
+  <input type="file" id="packagePhotoFileInput" accept="image/*" capture="environment" style="display:none;" />
 
   <!-- Toast Notification Container -->
   <div id="toastNotice" class="toast-notice hidden"></div>
@@ -1032,11 +1489,11 @@
   <script>window.__ENV__ = window.__ENV__ || {};</script>
   <script src="js/env.js"></script>
   <script src="js/icons.js"></script>
-  <script src="js/optimizer.js?v=1.1.8"></script>
+  <script src="js/optimizer.js?v=1.1.9"></script>
   <script src="js/scanner.js"></script>
   <script src="js/photo-storage.js"></script>
   <script src="js/firebase-service.js"></script>
-  <script src="js/app.js?v=1.1.8"></script>
+  <script src="js/app.js?v=1.1.9"></script>
 
   <script>
     // Handlers para os modais de autenticação e configuração (Sem alertas nativos)
@@ -1103,4 +1560,5 @@
     }
   </script>
 </body>
+
 </html>

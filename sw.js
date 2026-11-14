@@ -1,18 +1,18 @@
 // Organiza Entregas - Service Worker Offline First
-const APP_VERSION = "1.1.8";
-const CACHE_NAME = "organiza-entregas-v18";
+const APP_VERSION = "1.1.9";
+const CACHE_NAME = "organiza-entregas-v19";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./css/style.css?v=1.1.8",
+  "./css/style.css?v=1.1.9",
   "./js/env.js",
   "./js/icons.js",
-  "./js/optimizer.js?v=1.1.8",
+  "./js/optimizer.js?v=1.1.9",
   "./js/scanner.js",
   "./js/photo-storage.js",
   "./js/firebase-service.js",
-  "./js/app.js?v=1.1.8",
+  "./js/app.js?v=1.1.9",
   "./apple-touch-icon.png",
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",

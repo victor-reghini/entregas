@@ -198,8 +198,12 @@ const RouteOptimizer = (function () {
     }
 
     const headers = splitLine(lines[0]).map((h) => h.toLowerCase().replace(/[\s/_-]+/g, ""));
+    let tnColIdx = headers.findIndex((h) => h.includes("spxtn") || h.includes("tracking") || h.includes("rastreio") || h.includes("awb"));
+    if (tnColIdx === -1) {
+      tnColIdx = headers.findIndex((h) => h === "tn" || h.includes("tn") || h.includes("codigo") || h.includes("pacote"));
+    }
     const colMap = {
-      tn: headers.findIndex((h) => h.includes("spxtn") || h.includes("tracking") || h.includes("tn") || h.includes("rastreio") || h.includes("pacote")),
+      tn: tnColIdx,
       address: headers.findIndex((h) => h.includes("destinationaddress") || h.includes("address") || h.includes("endereco")),
       bairro: headers.findIndex((h) => h.includes("bairro") || h.includes("neighborhood")),
       city: headers.findIndex((h) => h.includes("city") || h.includes("cidade")),
@@ -224,12 +228,17 @@ const RouteOptimizer = (function () {
     if (colMap.lon === -1) colMap.lon = 9;
 
     const rows = [];
+    const tnCounts = new Map();
     for (let i = 1; i < lines.length; i++) {
       const cols = splitLine(lines[i]);
       if (cols.length <= Math.max(colMap.tn, colMap.address)) continue;
-      const tn = cols[colMap.tn] || "";
-      const rawAddress = cols[colMap.address] || "";
-      if (!tn || !rawAddress) continue;
+      const rawTn = (cols[colMap.tn] || "").trim() || `PCT-${i}`;
+      const rawAddress = (cols[colMap.address] || "").trim();
+      if (!rawAddress) continue;
+
+      const prevCount = tnCounts.get(rawTn) || 0;
+      tnCounts.set(rawTn, prevCount + 1);
+      const tn = prevCount === 0 ? rawTn : `${rawTn}-${prevCount + 1}`;
 
       const lat = parseFloat(cols[colMap.lat]) || 0;
       const lon = parseFloat(cols[colMap.lon]) || 0;
@@ -803,11 +812,33 @@ const RouteOptimizer = (function () {
   }
 
   // Chain clusters offline by street geography (not relying on monotonic door numbering)
+  // When startPos (user's current location) is provided, the 1st point is strictly the closest one to startPos.
   function orderStopsByStreetChain(stops, startPos = null) {
     if (!stops || stops.length === 0) return [];
+    const startLat = startPos ? (startPos.latitude || startPos.lat || 0) : 0;
+    const startLon = startPos ? (startPos.longitude || startPos.lon || 0) : 0;
+    const hasStart = !!(startLat && startLon);
+
+    let workingStops = stops.slice();
+    let forcedFirst = null;
+    if (hasStart && workingStops.length > 0) {
+      let closestIdx = -1;
+      let bestDist = Infinity;
+      workingStops.forEach((s, idx) => {
+        if (!s.lat || !s.lon) return;
+        const d = haversineMeters(startLat, startLon, s.lat, s.lon);
+        if (d < bestDist) {
+          bestDist = d;
+          closestIdx = idx;
+        }
+      });
+      if (closestIdx >= 0) {
+        forcedFirst = workingStops.splice(closestIdx, 1)[0];
+      }
+    }
 
     const streetsMap = new Map();
-    stops.forEach((s) => {
+    workingStops.forEach((s) => {
       if (!streetsMap.has(s.street)) streetsMap.set(s.street, []);
       streetsMap.get(s.street).push(s);
     });
@@ -828,9 +859,13 @@ const RouteOptimizer = (function () {
     });
 
     const orderedStops = [];
-    let currentPos = startPos && startPos.lat && startPos.lon
-      ? { lat: startPos.lat, lon: startPos.lon }
-      : null;
+    let currentPos = null;
+    if (forcedFirst) {
+      orderedStops.push(forcedFirst);
+      currentPos = { lat: forcedFirst.lat, lon: forcedFirst.lon };
+    } else if (hasStart) {
+      currentPos = { lat: startLat, lon: startLon };
+    }
 
     if (!currentPos && unvisited.length > 0) {
       let bestStartIdx = 0;
@@ -921,6 +956,7 @@ const RouteOptimizer = (function () {
     const hubsWorking = reverse ? orderedHubs.slice().reverse() : orderedHubs.slice();
     const orderedStops = [];
     let packageSeq = 0;
+    const usedItemTns = new Set();
 
     hubsWorking.forEach((hub, hIdx) => {
       hub.hubId = hIdx + 1;
@@ -979,6 +1015,9 @@ const RouteOptimizer = (function () {
           packageSeq += 1;
           it.seq = packageSeq;
           it.stopId = s.id;
+          const baseTn = String(it.tn || `ITEM-${packageSeq}`).trim();
+          it.tn = usedItemTns.has(baseTn) ? `${baseTn}#${packageSeq}` : baseTn;
+          usedItemTns.add(it.tn);
         });
         orderedStops.push(s);
       });
@@ -1498,29 +1537,51 @@ const RouteOptimizer = (function () {
     const originLat = hasOrigin ? (userLocation.latitude || userLocation.lat) : null;
     const originLon = hasOrigin ? (userLocation.longitude || userLocation.lon) : null;
 
-    const coordPoints = hasOrigin
-      ? [{ lat: originLat, lon: originLon }, ...valid]
-      : valid;
+    let workingValid = valid.slice();
+    if (hasOrigin && workingValid.length > 1) {
+      let closestIdx = 0;
+      let bestDist = Infinity;
+      workingValid.forEach((h, idx) => {
+        const d = haversineMeters(originLat, originLon, h.lat, h.lon);
+        if (d < bestDist) {
+          bestDist = d;
+          closestIdx = idx;
+        }
+      });
+      if (closestIdx > 0) {
+        const [closestHub] = workingValid.splice(closestIdx, 1);
+        workingValid.unshift(closestHub);
+      }
+    }
 
-    const coordsStr = coordPoints.map((p) => `${p.lon},${p.lat}`).join(";");
+    const coordsStr = workingValid.map((p) => `${p.lon},${p.lat}`).join(";");
     const data = await fetchJsonWithTimeout(
       `https://router.project-osrm.org/table/v1/driving/${coordsStr}?annotations=duration`
     );
     if (!data || data.code !== "Ok" || !Array.isArray(data.durations)) return null;
 
+    // When userLocation is provided, workingValid[0] is the closest hub to the user and is locked at index 0
     const order = solveAsymmetricOpenTsp(data.durations, hasOrigin ? 0 : null);
     const orderedValid = order
-      .filter((idx) => !(hasOrigin && idx === 0))
-      .map((idx) => valid[hasOrigin ? idx - 1 : idx])
+      .map((idx) => workingValid[idx])
       .filter(Boolean);
 
     return orderedValid.concat(invalid);
   }
 
-  // Fetch road driving geometry connecting Parking Hubs strictly along roadways
-  async function fetchRoadDataForHubs(hubs) {
-    if (!hubs || hubs.length < 2) return null;
-    const drivingPoints = hubs.filter((h) => h.lat && h.lon);
+  // Fetch road driving geometry connecting User Origin -> Parking Hubs strictly along roadways
+  async function fetchRoadDataForHubs(hubs, userLocation = null) {
+    if (!hubs || hubs.length === 0) return null;
+    const hubPoints = hubs.filter((h) => h.lat && h.lon);
+    const hasOrigin = !!(userLocation && (userLocation.latitude || userLocation.lat) && (userLocation.longitude || userLocation.lon));
+    const originPoint = hasOrigin
+      ? {
+          lat: userLocation.latitude || userLocation.lat,
+          lon: userLocation.longitude || userLocation.lon,
+          isOrigin: true
+        }
+      : null;
+    const drivingPoints = originPoint ? [originPoint, ...hubPoints] : hubPoints;
     if (drivingPoints.length < 2) return null;
 
     const chunkSize = 45;
@@ -1688,7 +1749,9 @@ const RouteOptimizer = (function () {
       : null;
     const orderedHubs = orderStopsByStreetChain(hubs, hubStartPos);
 
-    return finalizeHubRoute(orderedHubs, options.packageSpecs || {}, !!options.reverse, null, []);
+    const finalized = finalizeHubRoute(orderedHubs, options.packageSpecs || {}, !!options.reverse, null, []);
+    finalized.originLocation = hubStartPos;
+    return finalized;
   }
 
   // Asynchronous road-network optimizer:
@@ -1707,17 +1770,18 @@ const RouteOptimizer = (function () {
     const hubs = await buildParkingHubsAsync(physicalStops, walkRadius);
     const usedFootDistance = hubs.some((h) => !!h.usedFootDistance);
 
-    let orderedHubs = await optimizeHubsWithOsrm(hubs, options.userLocation);
+    const hubStartPos = options.userLocation
+      ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
+      : null;
+
+    let orderedHubs = await optimizeHubsWithOsrm(hubs, hubStartPos);
     if (!orderedHubs) {
-      const hubStartPos = options.userLocation
-        ? { lat: options.userLocation.latitude || options.userLocation.lat, lon: options.userLocation.longitude || options.userLocation.lon }
-        : null;
       orderedHubs = orderStopsByStreetChain(hubs, hubStartPos);
     }
 
     const finalized = finalizeHubRoute(orderedHubs, options.packageSpecs || {}, !!options.reverse, null, []);
     const [roadData, walkPolylines] = await Promise.all([
-      fetchRoadDataForHubs(finalized.hubs),
+      fetchRoadDataForHubs(finalized.hubs, hubStartPos),
       fetchWalkGeometriesForHubsAsync(finalized.hubs)
     ]);
 
@@ -1736,6 +1800,7 @@ const RouteOptimizer = (function () {
     return {
       ...finalized,
       ...metrics,
+      originLocation: hubStartPos,
       geocodedCount,
       usedFootDistance: usedFootDistance || !!(walkPolylines && walkPolylines.some((w) => w.usedFootRouting)),
       walkPolylines: walkPolylines || [],
@@ -1936,13 +2001,18 @@ const RouteOptimizer = (function () {
     return parts.join(", ");
   }
 
-  // Google Maps multi-stop URL builder (routes Parking Hubs when available)
-  function buildGoogleMapsRouteUrl(points, startIdx = 0, count = null) {
+  // Google Maps multi-stop URL builder (routes Parking Hubs when available, starting from userLocation when provided)
+  function buildGoogleMapsRouteUrl(points, startIdx = 0, count = null, userLocation = null) {
     if (!points || points.length === 0) return "#";
     const slice = count ? points.slice(startIdx, startIdx + count) : points.slice(startIdx);
     if (slice.length === 0) return "#";
 
     const segments = slice.map((p) => encodeURIComponent(formatStopLabel(p)));
+    const uLat = userLocation ? (userLocation.latitude || userLocation.lat || 0) : 0;
+    const uLon = userLocation ? (userLocation.longitude || userLocation.lon || 0) : 0;
+    if (uLat && uLon && startIdx === 0) {
+      segments.unshift(encodeURIComponent(`${uLat},${uLon}`));
+    }
     return "https://www.google.com/maps/dir/" + segments.join("/") + "/";
   }
 

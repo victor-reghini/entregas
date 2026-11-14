@@ -537,14 +537,33 @@ main.app-main {
   gap: 8px;
 }
 
-/* App Navigation Tabs (Sticky bar) */
-.tab-bar-nav {
+/* App Navigation Tabs (Instagram-style Fixed Bottom Bar) */
+.tab-bar-nav,
+.bottom-instagram-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2500;
   display: flex;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 4px;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-around;
+  background: rgba(18, 19, 24, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px)) 8px;
+  gap: 2px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .bottom-instagram-nav {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
 }
 
 .tab-btn {
@@ -555,12 +574,12 @@ main.app-main {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  padding: 8px 3px;
+  padding: 6px 2px;
   border: none;
   background: transparent;
   color: var(--text-muted);
   border-radius: var(--radius-sm);
-  font-size: clamp(0.64rem, 2.5vw, 0.74rem);
+  font-size: clamp(0.62rem, 2.3vw, 0.72rem);
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
@@ -568,9 +587,8 @@ main.app-main {
 }
 
 .tab-btn.active {
-  background: var(--surface-2);
+  background: rgba(238, 77, 45, 0.14);
   color: var(--primary);
-  box-shadow: var(--shadow-sm);
 }
 
 .tab-btn .badge-pill {
@@ -1148,6 +1166,15 @@ main.app-main {
   justify-content: center;
   color: #ffffff;
   animation: vehicleGlow 2s infinite ease-in-out;
+}
+
+.map-route-light {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 25%, #fde047 65%, #f97316 100%);
+  box-shadow: 0 0 8px 3px rgba(253, 224, 71, 0.9), 0 0 16px 6px rgba(238, 77, 45, 0.65);
+  pointer-events: none;
 }
 
 @keyframes vehicleGlow {
@@ -1958,6 +1985,266 @@ main.app-main {
   color: #ffffff;
   border-color: var(--primary);
 }
+
+/* Clearance for Instagram Fixed Bottom Bar */
+body {
+  padding-bottom: calc(74px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+.header-finish-btn {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: var(--danger-text);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  width: auto;
+  white-space: nowrap;
+}
+
+/* ==========================================
+   GOOGLE MAPS-STYLE MAIN MAP SCREEN
+   ========================================== */
+.gmaps-screen {
+  position: relative;
+  width: 100%;
+  height: calc(100dvh - 156px);
+  min-height: 480px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  background: var(--surface);
+}
+
+#map.gmaps-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 480px !important;
+  border-radius: var(--radius-md);
+  margin: 0 !important;
+}
+
+.gmaps-top-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.gmaps-top-overlay > * {
+  pointer-events: auto;
+}
+
+.gmaps-turn-banner {
+  background: rgba(6, 78, 59, 0.94) !important;
+  border: 1px solid rgba(16, 185, 129, 0.45) !important;
+  color: #ffffff !important;
+  border-radius: var(--radius-md) !important;
+  padding: 9px 12px !important;
+  margin-bottom: 0 !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(10px);
+}
+
+.gmaps-turn-banner .map-nav-hud-turn {
+  color: #ffffff !important;
+  font-size: 0.85rem;
+}
+
+.gmaps-turn-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.gmaps-legend-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.gmaps-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(18, 19, 24, 0.86);
+  backdrop-filter: blur(8px);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] .gmaps-legend-chip {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+.gmaps-fab-stack {
+  position: absolute;
+  right: 8px;
+  top: 96px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gmaps-fab-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 52px;
+  min-height: 46px;
+  padding: 5px 4px;
+  border-radius: 12px;
+  background: rgba(18, 19, 24, 0.9);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.6rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .gmaps-fab-btn {
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.gmaps-bottom-sheet {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 920;
+  background: rgba(18, 19, 24, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px 10px 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.52);
+}
+
+[data-theme="light"] .gmaps-bottom-sheet {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.gmaps-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  margin: 0 auto 6px auto;
+  cursor: pointer;
+}
+
+.gmaps-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gmaps-nav-arrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.gmaps-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid var(--border) !important;
+}
+
+.gmaps-sheet-items {
+  margin-top: 8px;
+  max-height: 170px;
+  overflow-y: auto;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+.inline-pkg-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  margin-bottom: 5px;
+}
+
+.inline-pkg-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.inline-status-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.inline-status-btn.active-ok {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: var(--success-text);
+}
+
+.inline-status-btn.active-pending {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #f59e0b;
+  color: var(--warning-text);
+}
+
+.inline-status-btn.active-fail {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: var(--danger-text);
+}
+
 
 
 
